@@ -1,4 +1,4 @@
-#summary A simple overview of my recent printing changes.
+#summary A simple overview of the recent printing changes for openSUSE 10.3.
 
 = Introduction =
 
@@ -25,13 +25,19 @@ When a local printer is removed the CUPS_AUTOCONFIG_DISABLE variable is consulte
 
 == DBUS Signals ==
 
-= CUPS changes =
+Results of cups-autoconfig operations are reported via DBUS messages on the System bus.  If a new printer is successfully configured then a PrinterInfo message is sent via the org.cups.CupsAutoconfig interface.  If configuration fails (unable to find a matching driver, adding the queue fails, etc) then a PrinterConfigRequired message is sent using the same interface.  Policy applications running in the user's session should watch for these messages and take appropriate action.  See the gnome-volume-manager section for details.
 
-= libgnomecups changes =
+= Removal of the HAL backend =
 
-= gnome-cups-manager changes =
+= Changes to other projects =
 
-= gnome-volume-manager changes =
+== CUPS ==
+
+== libgnomecups ==
+
+== gnome-cups-manager ==
+
+== gnome-volume-manager ==
 
 = TODO =
 
