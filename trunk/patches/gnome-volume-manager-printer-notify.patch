@@ -1,0 +1,74 @@
+Only in .: gnome-volume-manager.spec
+diff -ur /usr/src/packages/BUILD/gnome-volume-manager-2.17.0/src/manager.c ./src/manager.c
+--- /usr/src/packages/BUILD/gnome-volume-manager-2.17.0/src/manager.c	2007-05-14 11:51:06.000000000 -0400
++++ ./src/manager.c	2007-05-14 11:50:02.000000000 -0400
+@@ -2811,6 +2811,23 @@
+ 	return TRUE;
+ }
+ 
++#if ENABLE_NOTIFY
++static void
++show_printer_notification (const char *title, const char *message)
++{
++    NotifyNotification *n;
++    n = notify_notification_new (title, message, "gnome-dev-printer", NULL);
++    notify_notification_show (n, NULL);
++	g_object_unref (n);
++}
++#endif
++
++static void
++printer_needs_configuration (const char *udi)
++{
++    gvm_run_printer (udi);
++}
++
+ static DBusHandlerResult
+ gvm_dbus_filter_function (DBusConnection *connection, DBusMessage *message, void *user_data)
+ {
+@@ -2825,7 +2842,30 @@
+ 		g_timeout_add (3000, reinit_dbus, NULL);
+ 		
+ 		return DBUS_HANDLER_RESULT_HANDLED;
+-	}
++#if ENABLE_NOTIFY
++	} else if (dbus_message_is_signal (message, "org.cups.CupsAutoconfig", "PrinterInfo")) {
++        DBusMessageIter iter;
++        char *title;
++        char *msg;
++
++        dbus_message_iter_init (message, &iter);
++        dbus_message_iter_get_basic (&iter, &title);
++        dbus_message_iter_next (&iter);
++        dbus_message_iter_get_basic (&iter, &msg);
++        
++        show_printer_notification (title, msg);
++		return DBUS_HANDLER_RESULT_HANDLED;
++#endif
++    } else if (dbus_message_is_signal (message, "org.cups.CupsAutoconfig", "PrinterConfigRequired")) {
++        DBusMessageIter iter;
++        char *udi;
++        
++        dbus_message_iter_init (message, &iter);
++        dbus_message_iter_get_basic (&iter, &udi);
++
++        printer_needs_configuration (udi);
++		return DBUS_HANDLER_RESULT_HANDLED;
++    }
+ 	
+ 	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+ }
+@@ -2848,6 +2888,13 @@
+ 	dbus_connection_setup_with_g_main (dbus_connection, NULL);
+ 	dbus_connection_set_exit_on_disconnect (dbus_connection, FALSE);
+ 	
++    dbus_bus_add_match (dbus_connection, "type=signal,interface=org.cups.CupsAutoconfig", &error);
++    if (dbus_error_is_set (&error)) {
++		dbg ("failed to add match rule: %s\n", error.message);
++		dbus_error_free (&error);
++		return FALSE;
++    }
++
+ 	dbus_connection_add_filter (dbus_connection, gvm_dbus_filter_function, NULL, NULL);
+ 	
+ 	return TRUE;

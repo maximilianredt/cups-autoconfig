@@ -24,7 +24,7 @@
 //TODO: use other backends
 
 #define CUPS_BACKEND_DIR LIBDIR "/cups/backend"
-#define LOGFILE "/var/log/cups-util.log"
+#define LOGFILE "/var/log/cups-autoconfig.log"
 
 #define dbg(fmt,arg...) log_it(TRUE, fmt, ##arg)
 #define err(fmt,arg...) log_it(FALSE, fmt, ##arg)
@@ -203,8 +203,8 @@ static gboolean send_notification (const gchar *title, const gchar *message)
     DBusMessage *msg;
     DBusMessageIter iter;
 
-    msg = dbus_message_new_signal ("/org/cups/CupsAutoConfig",
-                                   "org.cups.CupsAutoConfig",
+    msg = dbus_message_new_signal ("/org/cups/CupsAutoconfig",
+                                   "org.cups.CupsAutoconfig",
                                    "PrinterInfo");
     if (!msg) {
         err ("Failed to construct message\n");
@@ -227,8 +227,8 @@ static gboolean request_manual_configuration (const gchar *udi)
     DBusMessage *msg;
     DBusMessageIter iter;
 
-    msg = dbus_message_new_signal ("/org/cups/CupsAutoConfig",
-                                   "org.cups.CupsAutoConfig",
+    msg = dbus_message_new_signal ("/org/cups/CupsAutoconfig",
+                                   "org.cups.CupsAutoconfig",
                                    "PrinterConfigRequired");
     if (!msg) {
         err ("Failed to construct message\n");
@@ -754,8 +754,8 @@ static gboolean add_print_queue (PrinterInfo *pi, const gchar *ppd_file, const g
 	ippAddInteger(request, IPP_TAG_PRINTER, IPP_TAG_ENUM, "printer-state",
                   IPP_PRINTER_IDLE);
 
-    policy = g_getenv ("CUPS_PRINTER_POLICY");
-    if (policy) {
+    policy = g_getenv ("CUPS_AUTOCONFIG_POLICY");
+    if (policy && strcmp (policy, "")) {
         ippAddString (request, IPP_TAG_PRINTER, IPP_TAG_NAME,
                       "printer-op-policy", NULL, g_strdup (policy));
     }
@@ -814,9 +814,9 @@ static gboolean printer_added (void)
     PrinterInfo *new_printer = NULL, *old_printer = NULL;
     gboolean ret = FALSE;
     
-    enabled = g_getenv ("CUPS_AUTO_CONFIG");
+    enabled = g_getenv ("CUPS_AUTOCONFIG_ENABLE");
     if (!enabled || strncmp ("yes", enabled, 3)) {
-        g_print ("skipping, CUPS_AUTO_CONFIGURE is not 'yes' it's '%s'\n", enabled);
+        g_print ("skipping, CUPS_AUTOCONFIG_ENABLE is not 'yes' it's '%s'\n", enabled);
         return TRUE;
     }
 
@@ -900,9 +900,9 @@ static gboolean printer_removed (void)
     GSList *detected = NULL, *configured = NULL, *c = NULL;
     gboolean ret = TRUE;
     
-    enabled = g_getenv ("CUPS_AUTO_DISABLE");
+    enabled = g_getenv ("CUPS_AUTOCONFIG_DISABLE");
     if (!enabled || strncmp ("yes", enabled, 3)) {
-        g_print ("skipping, CUPS_AUTO_DISABLE is not 'yes'\n");
+        g_print ("skipping, CUPS_AUTOCONFIG_DISABLE is not 'yes'\n");
         return TRUE;
     }
     
