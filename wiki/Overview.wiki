@@ -1,0 +1,13 @@
+#summary A simple overview of my recent printing changes.
+
+= Introduction =
+
+= cups-autoconfig =
+
+= CUPS changes =
+
+= libgnomecups changes =
+
+= gnome-cups-manager changes =
+
+= gnome-volume-manager changes =
