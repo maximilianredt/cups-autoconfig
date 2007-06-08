@@ -1,0 +1,78 @@
+AC_PREREQ(2.52)
+
+AC_INIT(cups-autoconfig, 0.1.0)
+AM_INIT_AUTOMAKE(cups-autoconfig, 0.1.0)
+AM_MAINTAINER_MODE
+
+AM_CONFIG_HEADER(config.h)
+
+m4_pattern_allow([^AS_AC_EXPAND])
+
+AC_ARG_WITH([slibdir], AS_HELP_STRING([--with-slibdir=PATH],
+    [Path to the super lib directory [[/lib]]]),
+    [slibdir="$withval"], [slibdir="/lib"])
+AC_SUBST(slibdir)
+
+dnl
+dnl Require programs
+dnl
+AC_PROG_CC
+AM_PROG_CC_C_O
+AC_PROG_INSTALL
+AC_PROG_LIBTOOL
+
+dnl
+dnl Translation support
+dnl
+AC_PROG_INTLTOOL([0.23])
+GETTEXT_PACKAGE=cups-autoconfig
+AC_SUBST(GETTEXT_PACKAGE)
+ALL_LINGUAS="en_US"
+AM_GLIB_GNU_GETTEXT
+AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE,"$GETTEXT_PACKAGE", [Gettext package])
+
+dnl
+dnl Check for cups 
+dnl
+AC_HEADER_STDC
+AC_CHECK_HEADERS(cups/cups.h cups/http.h cups/ipp.h)
+
+dnl
+dnl Check for glib
+dnl
+PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.8)
+AC_SUBST(GLIB_CFLAGS)
+AC_SUBST(GLIB_LIBS)
+
+dnl
+dnl Check for DBUS 
+dnl
+PKG_CHECK_MODULES(DBUS, dbus-1)
+AC_SUBST(DBUS_CFLAGS)
+AC_SUBST(DBUS_LIBS)
+
+PREFIX=$prefix
+AC_SUBST(PREFIX)
+
+SYSCONFDIR=$sysconfdir
+AC_SUBST(SYSCONFDIR)
+
+DATADIR=$datadir
+AC_SUBST(DATADIR)
+
+LIBDIR=$libdir
+AC_SUBST(LIBDIR)
+
+AC_OUTPUT([
+Makefile
+po/Makefile.in
+src/Makefile
+src/hal-cups-autoconfig
+])
+
+echo
+echo "prefix:                     $prefix"
+echo "sysconfdir:                 $sysconfdir"
+echo "datadir:                    $datadir"
+echo "libdir:                     $libdir"
+echo
