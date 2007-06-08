@@ -1,3 +1,10 @@
+2007-06-08  Chris Rivera  <crivera@novell.com>
+
+	* configure.in:
+	* src/hal-cups-autoconfig.in:
+
+	Use as-ac-expand.m4 to correctly fillout the build paths.
+
 2007-06-01  Chris Rivera  <crivera@novell.com>
 
 	* src/cups-autoconfig.c: Set the printer policy based on 
