@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+
+<deviceinfo version="0.2">
+  <device>
+    <match key="info.capabilities" contains="printer">
+      <append key="info.callouts.add" type="strlist">hal-cups-autoconfig --add</append>
+      <append key="info.callouts.remove" type="strlist">hal-cups-autoconfig --remove</append>
+    </match>
+  </device>
+</deviceinfo>
