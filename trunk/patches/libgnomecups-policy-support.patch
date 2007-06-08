@@ -1,0 +1,241 @@
+diff -ur /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-printer.c ./libgnomecups/gnome-cups-printer.c
+--- /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-printer.c	2005-09-23 16:52:49.000000000 -0400
++++ ./libgnomecups/gnome-cups-printer.c	2007-06-06 16:14:14.000000000 -0400
+@@ -36,6 +36,7 @@
+ #include "gnome-cups-i18n.h"
+ 
+ #define UPDATE_TIMEOUT 5000
++#define DEFAULT_POLICY "default"
+ 
+ struct _GnomeCupsPPDFile {
+ 	char name[1];
+@@ -64,6 +65,7 @@
+ 	char *device_uri;
+ 	char *printer_uri;
+ 	char *state_message;
++    char *policy;
+ 	ipp_pstate_t state;
+ 	int job_count;
+ 
+@@ -99,13 +101,20 @@
+ 
+ static void update_printers (void);
+ static void set_timeout (void);
++static void update_policy_permissions (void);
+ 
+ static GList *printer_names = NULL;
+ static char *default_printer = NULL;
+ static GHashTable *printers = NULL;
+ static GList *add_notifies = NULL;
+ static GList *removed_notifies = NULL;
++static GHashTable *policies = NULL;
+ static guint signals[LAST_SIGNAL];
++static int policy_ops[] = { IPP_PAUSE_PRINTER, IPP_RESUME_PRINTER,
++                            CUPS_DELETE_PRINTER, CUPS_SET_DEFAULT,
++                            CUPS_ADD_MODIFY_PRINTER, IPP_SET_PRINTER_ATTRIBUTES,
++                            IPP_HOLD_JOB, IPP_RELEASE_JOB, IPP_CANCEL_JOB };
++static int policy_ops_nr = sizeof (policy_ops) / sizeof (policy_ops[0]);
+ 
+ GList *
+ gnome_cups_get_printers (void)
+@@ -257,6 +266,7 @@
+ 			MAP_STRING (printer->details->info, "printer-info");
+ 			MAP_STRING (printer->details->make_and_model, "printer-make-and-model");
+ 			MAP_STRING (printer->details->printer_uri, "printer-uri-supported");
++            MAP_STRING (printer->details->policy, "printer-op-policy");
+ 		}
+ 	}
+ 	ippDelete (response);
+@@ -295,7 +305,8 @@
+ 	  "printer-location",		"printer-info",
+ 	  "printer-state-message",	"device-uri",
+ 	  "printer-state-reasons",	"printer-info",
+-	  "printer-make-and-model",	"printer-uri-supported"
++	  "printer-make-and-model",	"printer-uri-supported",
++      "printer-op-policy"
+ 	};
+ 
+ 	if (printer->details->attributes_request_id > 0) {
+@@ -506,7 +517,7 @@
+ 					  
+ 	g_free (filename);
+ 	
+-	filename = g_build_filename (g_get_home_dir (), ".lpoptions", NULL);
++	filename = g_build_filename (g_get_home_dir (), ".cups", "lpoptions", NULL);
+ 	num_dests = cups_get_dests (filename, num_dests, dests);
+ 	g_free (filename);
+ 
+@@ -588,7 +599,7 @@
+ 	if (!old_default) {
+ 		old_default = g_strdup ("");
+ 	}
+-	
++
+ 	if (!strcmp (old_default, default_printer)) {
+ 		g_free (old_default);
+ 		return;
+@@ -751,6 +762,7 @@
+ 	 * if a request is currently executing */
+ 	if (_gnome_cups_outstanding_request_count () == 0) {
+ 		update_printers ();
++        update_policy_permissions ();
+ 	}
+ 	
+ 	return TRUE;
+@@ -1719,6 +1731,7 @@
+ 	g_free (printer->details->info);
+ 	g_free (printer->details->make_and_model);
+ 	g_free (printer->details->printer_uri);
++    g_free (printer->details->policy);
+ 	g_free (printer->details);
+ }
+ 
+@@ -1733,6 +1746,7 @@
+ 	printer->details->make_and_model = g_strdup ("");
+ 	printer->details->device_uri = g_strdup ("");
+ 	printer->details->state_message = g_strdup ("");
++    printer->details->policy = g_strdup ("");
+ 
+ 	printer->details->state = IPP_PRINTER_IDLE;
+ }
+@@ -1804,6 +1818,7 @@
+ 	initialized = TRUE;
+ 
+ 	update_printers ();
++    update_policy_permissions ();
+ }
+ 
+ GList *
+@@ -1964,3 +1979,108 @@
+ 	
+ 	return host;
+ }
++
++static void
++update_policy_permissions ()
++{
++    ipp_t *request, *response;
++    ipp_attribute_t *perms_attr;
++    GError *error = NULL;
++    int i;
++
++    if (!policies)
++        policies = g_hash_table_new (g_str_hash, g_str_equal);
++
++    request = gnome_cups_request_new (CUPS_IS_AUTHORIZED);
++    ippAddString (request, IPP_TAG_OPERATION, IPP_TAG_NAME,
++                  "requesting-user-name", NULL, g_get_user_name ());
++    ippAddIntegers (request, IPP_TAG_OPERATION, IPP_TAG_INTEGER,
++                    "operation-ids", policy_ops_nr, policy_ops);
++
++    response = gnome_cups_request_execute (request, NULL, "/", &error);
++    if (error) {
++        g_warning ("Failed to update policies: %s\n", error->message);
++		g_error_free (error);
++        goto out;
++    }
++
++    perms_attr = ippFindAttribute (response, "permissions", IPP_TAG_BEGIN_COLLECTION);
++    if (!perms_attr) {
++        g_warning ("Invalid response from CUPS_IS_AUTHORIZED request\n");
++        goto out;
++    }
++
++    for (i = 0; i < perms_attr->num_values; i++) {
++        ipp_t *c = perms_attr->values[i].collection;
++        ipp_attribute_t *perms, *pol;
++        int *pa;
++        int j;
++        
++        pol = ippFindAttribute (c, "printer-op-policy", IPP_TAG_NAME);
++        if (!pol) {
++            g_warning ("Response is missing printer-op-policy field\n");
++            continue;
++        }
++
++        perms = ippFindAttribute (c, "operation-permissions", IPP_TAG_INTEGER);
++        if (!perms) {
++            g_warning ("Response is missing operation-permissions field\n");
++            continue;
++        }
++
++        if (perms->num_values < policy_ops_nr) {
++            g_warning ("Incorrect number of permission values\n");
++            continue;
++        }
++
++        pa = g_hash_table_lookup (policies, pol->values[0].string.text);
++        if (!pa) {
++            pa = g_malloc (sizeof (int) * policy_ops_nr);
++            g_hash_table_insert (policies, g_strdup (pol->values[0].string.text), pa);
++        } 
++
++        for (j = 0; j < policy_ops_nr; j++) {
++            pa[j] = perms->values[j].integer;
++        }
++    }
++
++out:
++    ippDelete (response);
++}
++
++gboolean
++gnome_cups_printer_op_authorized (GnomeCupsPrinter *printer, ipp_op_t op)
++{
++    const char *policy;
++    int *pa;
++    int i;
++    
++    g_return_val_if_fail (policies, FALSE);
++
++    if (printer) {
++        g_return_val_if_fail (GNOME_CUPS_IS_PRINTER (printer), FALSE);
++        policy = printer->details->policy;
++        if (!policy || !strcmp (policy, ""))
++            return FALSE;
++    } else {
++        policy = DEFAULT_POLICY;
++    }
++
++    pa = g_hash_table_lookup (policies, policy);
++    if (!pa)
++        return FALSE;
++
++    for (i = 0; i < policy_ops_nr; i++) {
++        if (policy_ops[i] == op)
++            return pa[i] ? TRUE : FALSE;
++    }
++
++    return FALSE;
++}
++
++const char *
++gnome_cups_printer_get_policy (GnomeCupsPrinter *printer)
++{
++    g_return_val_if_fail (GNOME_CUPS_IS_PRINTER (printer), NULL);
++    return printer->details->policy;
++}
+diff -ur /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-printer.h ./libgnomecups/gnome-cups-printer.h
+--- /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-printer.h	2005-03-04 08:43:33.000000000 -0500
++++ ./libgnomecups/gnome-cups-printer.h	2007-06-01 13:56:49.000000000 -0400
+@@ -180,6 +180,8 @@
+ GnomeCupsPPDFile       *gnome_cups_printer_get_ppd_file      (GnomeCupsPrinter        *printer);
+ char                   *gnome_cups_ppd_file_get_name         (GnomeCupsPPDFile        *ppd_file);
+ void                    gnome_cups_ppd_file_release          (GnomeCupsPPDFile        *ppd_file);
++const char             *gnome_cups_printer_get_policy        (GnomeCupsPrinter        *printer);
++gboolean                gnome_cups_printer_op_authorized     (GnomeCupsPrinter        *printer, ipp_op_t op);
+ 
+ /* Private */
+ void _gnome_cups_printer_init (void);
+diff -ur /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-request.c ./libgnomecups/gnome-cups-request.c
+--- /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-request.c	2007-06-07 14:00:18.000000000 -0400
++++ ./libgnomecups/gnome-cups-request.c	2007-06-07 14:00:15.000000000 -0400
+@@ -319,6 +320,8 @@
+ 		return;
+ 	}
+ 
++    cupsSetPasswordCB (cups_password_cb);
++
+ 	if (_gnome_cups_debug) {
+ 		g_print ("---->>>  locking %p\n", request->connection);
+ 	}

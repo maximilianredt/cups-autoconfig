@@ -1,0 +1,132 @@
+diff -ur /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h ./cups/ipp.h
+--- /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h	2006-08-24 11:55:42.000000000 -0400
++++ ./cups/ipp.h	2007-06-01 11:55:24.000000000 -0400
+@@ -254,7 +254,8 @@
+   CUPS_GET_DEVICES,			/* Get a list of supported devices */
+   CUPS_GET_PPDS,			/* Get a list of supported drivers */
+   CUPS_MOVE_JOB,			/* Move a job to a different printer */
+-  CUPS_AUTHENTICATE_JOB			/* Authenticate a job @since CUPS 1.2@ */
++  CUPS_AUTHENTICATE_JOB,	/* Authenticate a job @since CUPS 1.2@ */
++  CUPS_IS_AUTHORIZED        /* See if a user is authorized to perform an operation */
+ } ipp_op_t;
+ 
+ /* Old names for the operations */
+diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
+--- /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c	2007-04-23 16:36:09.000000000 -0400
++++ ./scheduler/ipp.c	2007-06-05 15:05:33.000000000 -0400
+@@ -197,7 +197,7 @@
+ static int	validate_user(cupsd_job_t *job, cupsd_client_t *con,
+ 		              const char *owner, char *username,
+ 		              int userlen);
+-
++static void check_policy_authorization (cupsd_client_t *con);
+ 
+ /*
+  * 'cupsdProcessIPPRequest()' - Process an incoming IPP request...
+@@ -343,6 +343,7 @@
+ 	   con->request->request.op.operation_id != CUPS_GET_PRINTERS &&
+ 	   con->request->request.op.operation_id != CUPS_GET_CLASSES &&
+ 	   con->request->request.op.operation_id != CUPS_GET_DEVICES &&
++	   con->request->request.op.operation_id != CUPS_IS_AUTHORIZED &&
+ 	   con->request->request.op.operation_id != CUPS_GET_PPDS))
+       {
+        /*
+@@ -584,6 +586,10 @@
+ 	      get_notifications(con);
+ 	      break;
+ 
++      case CUPS_IS_AUTHORIZED:
++          check_policy_authorization (con);
++          break;
++
+ 	  default :
+ 	      cupsdAddEvent(CUPSD_EVENT_SERVER_AUDIT, NULL, NULL,
+                 	    "%04X %s Operation %04X (%s) not supported",
+@@ -5026,7 +5032,7 @@
+   * Check policy...
+   */
+ 
+-  if ((status = cupsdCheckPolicy(DefaultPolicyPtr, con, NULL)) != HTTP_OK)
++  if ((status = cupsdCheckPolicy(printer ? printer->op_policy_ptr : DefaultPolicyPtr, con, NULL)) != HTTP_OK)
+   {
+     send_http_error(con, status);
+     return;
+@@ -9162,6 +9168,78 @@
+                            con, owner) == HTTP_OK);
+ }
+ 
++static void
++check_policy_authorization (cupsd_client_t *con)
++{
++    ipp_attribute_t *id_attr, *user_attr, *owner_attr;
++    cupsd_policy_t **p;
++    ipp_t **results = NULL;
++    int i, j, *perms;
++
++    if ((user_attr = ippFindAttribute (con->request, "requesting-user-name",IPP_TAG_NAME)) == NULL) {
++        send_ipp_status(con, IPP_BAD_REQUEST, _("A requesting-user-name was not provided"));
++        return;
++    }
++   
++    if ((id_attr = ippFindAttribute (con->request, "operation-ids", IPP_TAG_INTEGER)) == NULL) {
++        send_ipp_status(con, IPP_BAD_REQUEST, _("An operation-id array was not provided"));
++        return;
++    }
++
++    if (id_attr->num_values > CUPS_IS_AUTHORIZED) {
++        send_ipp_status(con, IPP_BAD_REQUEST, _("Operation-id array is too large"));
++        return;
++    }
++
++    if (NumPolicies == 0) {
++        ippAddCollections (con->response, IPP_TAG_OPERATION,
++                           "permissions", 0, NULL);
++        con->response->request.status.status_code = IPP_OK;
++        return;
++    }
++
++    owner_attr = ippFindAttribute (con->request, "owner", IPP_TAG_NAME);
++
++    results = malloc (sizeof (ipp_t *) * NumPolicies);
++    if (results == NULL) {
++        send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
++        return;
++    }
++
++    perms = malloc (sizeof (int) * id_attr->num_values);
++    if (perms == NULL) {
++        send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
++        return;
++    }
++
++    strlcpy(con->username, user_attr->values[0].string.text, sizeof(con->username));
++
++    for (i = 0, p = Policies; i < NumPolicies; i++, p++) {
++        ipp_t *c = ippNew ();
++        ippAddString (c, IPP_TAG_OPERATION, IPP_TAG_NAME,
++                      "printer-op-policy", NULL, (*p)->name);
++      
++        for (j = 0; j < id_attr->num_values; j++) {
++            ipp_op_t fake_id = id_attr->values[j].integer;
++            con->request->request.op.operation_id = fake_id;
++            perms[j] = cupsdCheckPolicy(*p, con, owner_attr ?
++                            owner_attr->values[0].string.text : NULL) == HTTP_OK;
++        }
++
++        ippAddIntegers (c, IPP_TAG_OPERATION, IPP_TAG_INTEGER,
++                        "operation-permissions", id_attr->num_values, perms);
++        results[i] = c;
++    }
++
++    ippAddCollections (con->response, IPP_TAG_OPERATION,
++                       "permissions", NumPolicies, results);
++
++    free (perms);
++    free (results);
++    
++    con->request->request.op.operation_id = CUPS_IS_AUTHORIZED;
++    con->response->request.status.status_code = IPP_OK;
++}
+ 
+ /*
+  * End of "$Id: ipp.c 6465 2007-04-23 20:36:09Z mike $".

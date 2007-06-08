@@ -1,0 +1,191 @@
+--- cups-1.2.10/cups/auth.c.af_unix-auth	2007-01-10 16:48:37.000000000 +0000
++++ cups-1.2.10/cups/auth.c	2007-03-29 16:59:51.000000000 +0100
+@@ -26,6 +26,8 @@
+  * Contents:
+  *
+  *   cupsDoAuthentication() - Authenticate a request.
++ *   cups_peercred_auth()   - Find out if SO_PEERCRED authentication
++ *                            is possible
+  *   cups_local_auth()      - Get the local authorization certificate if
+  *                            available/applicable...
+  */
+@@ -40,7 +42,9 @@
+ #include <ctype.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#include <pwd.h>
+ #include <sys/stat.h>
++#include <sys/types.h>
+ #if defined(WIN32) || defined(__EMX__)
+ #  include <io.h>
+ #else
+@@ -177,6 +181,76 @@
+   return (0);
+ }
+ 
++/*
++ * 'cups_peercred_auth()'
++ *                     - UNIX Domain Sockets authentication
++ */
++
++static int				/* O - 0 if available, -1 if not */
++cups_peercred_auth(http_t *http)	/* I - HTTP connection to server */
++{
++#ifdef SO_PEERCRED
++  long buflen;
++  char *buf, *newbuf;
++  struct passwd pwbuf, *pwbufptr;
++  int r;
++
++  if (http->hostaddr->addr.sa_family != AF_LOCAL)
++    return (-1);
++
++ /*
++  * Are we trying to authenticate as ourselves?  If not, SO_PEERCRED
++  * is no use.
++  */
++  buflen = sysconf (_SC_GETPW_R_SIZE_MAX);
++  buf = NULL;
++  do
++  {
++    newbuf = realloc (buf, buflen);
++    if (newbuf == NULL)
++    {
++      free (buf);
++      return (-1);
++    }
++
++    buf = newbuf;
++    r = getpwnam_r (cupsUser(), &pwbuf, buf, buflen, &pwbufptr);
++    if (r != 0)
++    {
++      if (r == ERANGE)
++      {
++	buflen *= 2;
++	continue;
++      }
++
++      free (buf);
++      return (-1);
++    }
++  }
++  while (r != 0);
++
++  if (pwbuf.pw_uid != getuid())
++  {
++    free (buf);
++    return (-1);
++  }
++
++  free (buf);
++
++ /*
++  * Set the authorization string and return...
++  */
++
++  snprintf(http->authstring, sizeof(http->authstring), "SO_PEERCRED");
++
++  DEBUG_printf(("cups_peercred_auth: Returning authstring = \"%s\"\n",
++		http->authstring));
++
++  return (0);
++#else
++  return (-1);
++#endif /* SO_PEERCRED */
++}
+ 
+ /*
+  * 'cups_local_auth()' - Get the local authorization certificate if
+@@ -234,7 +308,7 @@
+   {
+     DEBUG_printf(("cups_local_auth: Unable to open file %s: %s\n",
+                   filename, strerror(errno)));
+-    return (-1);
++    return cups_peercred_auth(http);
+   }
+ 
+  /*
+--- cups-1.2.10/scheduler/auth.c.af_unix-auth	2006-09-12 14:58:39.000000000 +0100
++++ cups-1.2.10/scheduler/auth.c	2007-03-29 17:03:53.000000000 +0100
+@@ -60,6 +60,9 @@
+ 
+ #include "cupsd.h"
+ #include <grp.h>
++#include <pwd.h>
++#include <sys/socket.h>
++#include <sys/types.h>
+ #ifdef HAVE_SHADOW_H
+ #  include <shadow.h>
+ #endif /* HAVE_SHADOW_H */
+@@ -79,6 +82,9 @@
+ #ifdef HAVE_MEMBERSHIP_H
+ #  include <membership.h>
+ #endif /* HAVE_MEMBERSHIP_H */
++#if !defined(WIN32) && !defined(__EMX__)
++#  include <unistd.h>
++#endif
+ 
+ 
+ /*
+@@ -384,6 +390,61 @@
+                     "cupsdAuthorize: No authentication data provided.");
+     return;
+   }
++#ifdef SO_PEERCRED
++  else if (!strncmp(authorization, "SO_PEERCRED", 3) &&
++	   con->http.hostaddr->addr.sa_family == AF_LOCAL)
++  {
++    long buflen;
++    char *buf, *newbuf;
++    struct passwd pwbuf, *pwbufptr;
++    struct ucred u;
++    socklen_t ulen = sizeof(u);
++    int r;
++
++    if (getsockopt(con->http.fd, SOL_SOCKET, SO_PEERCRED, &u, &ulen) == -1)
++    {
++      cupsdLogMessage(CUPSD_LOG_ERROR,
++		      "cupsdAuthorize: getsockopt failed for SO_PEERCRED");
++      return;
++    }
++
++    buflen = sysconf (_SC_GETPW_R_SIZE_MAX);
++    buf = NULL;
++    do
++    {
++      newbuf = realloc (buf, buflen);
++      if (newbuf == NULL)
++      {
++	free (buf);
++	return;
++      }
++
++      buf = newbuf;
++
++      /* Look up which username the UID is for. */
++      r = getpwuid_r (u.uid, &pwbuf, buf, buflen, &pwbufptr);
++      if (r != 0)
++      {
++	if (r == ERANGE)
++	{
++	  buflen *= 2;
++	  continue;
++	}
++
++	cupsdLogMessage(CUPSD_LOG_ERROR,
++			"cupsdAuthorize: getpwuid_r failed after SO_PEERCRED");
++	free (buf);
++	return;
++      }
++    }
++    while (r != 0);
++
++    strlcpy(username, pwbuf.pw_name, sizeof(username));
++    free (buf);
++    cupsdLogMessage(CUPSD_LOG_DEBUG2,
++		    "cupsdAuthorize: using SO_PEERCRED (uid=%d)", u.uid);
++  }
++#endif /* SO_PEERCRED */
+   else if (!strncmp(authorization, "Local", 5) &&
+            !strcasecmp(con->http.hostname, "localhost"))
+   {
