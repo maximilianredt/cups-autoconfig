@@ -1,0 +1,677 @@
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-add/add-printer.c ./gnome-cups-add/add-printer.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-add/add-printer.c	2007-06-08 13:47:35.000000000 -0400
++++ ./gnome-cups-add/add-printer.c	2007-06-08 13:46:12.000000000 -0400
+@@ -126,10 +126,26 @@
+ 	return glade_xml_get_widget (xml, "connection_page");
+ }
+ 
++static void add_cups_printer_cb (guint id, const char *path,
++                                 ipp_t *response, GError **error,
++                                 gpointer cb_data)
++{
++    if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
++        g_printerr ("Failed to add new printer\n");
++    } else {
++        GladeXML *xml = cb_data;
++        GtkWidget *toplevel = glade_xml_get_widget (xml, "add_printer_window");
++        char const *args[] = { NULL };
++        gnome_cups_spawn ("gnome-cups-manager", G_N_ELEMENTS (args), args, FALSE, toplevel);
++        gtk_widget_destroy (toplevel);
++        g_object_unref (xml);
++        gtk_main_quit ();
++    }
++}
++
+ static gboolean
+ add_cups_printer (GladeXML *xml, char const *device_uri, GCupsPPD  const *ppd, char const *printer_name)
+ {
+-	GError *err = NULL;
+ 	char local_uri [HTTP_MAX_URI+1];
+ 	ipp_t *request = gnome_cups_request_new (CUPS_ADD_PRINTER);
+ 	
+@@ -146,15 +162,8 @@
+ 	ippAddBoolean (request, IPP_TAG_PRINTER, "printer-is-accepting-jobs", 1);
+ 	ippAddInteger(request, IPP_TAG_PRINTER, IPP_TAG_ENUM, "printer-state",
+ 		      IPP_PRINTER_IDLE);
+-	ippDelete (gnome_cups_request_execute (request, NULL, "/admin/", &err));
+-
+-	if (err != NULL) {
+-		gnome_cups_error_dialog ((GtkWindow *)glade_xml_get_widget (xml, "add_printer_window"),
+-					 _("Couldn't add printer"), err);
+-		g_error_free (err);
+-		return FALSE;
+-	}
+-
++    gnome_cups_request_execute_async (request, NULL, "/admin/",
++                                      add_cups_printer_cb, xml, NULL);
+ 	return TRUE;
+ }
+ 
+@@ -196,16 +205,7 @@
+ 	g_list_foreach (existing, (GFunc)g_free, NULL);
+ 	g_list_free (existing);
+ 
+-	if (add_cups_printer (xml, uri, ppd, name)) {
+-		GtkWidget *toplevel = glade_xml_get_widget (xml, "add_printer_window");
+-		char const *args[] = { "-p", NULL };
+-		args[1] = name;
+-		gnome_cups_spawn ("gnome-cups-manager", G_N_ELEMENTS (args), args, FALSE, toplevel);
+-		gtk_widget_destroy (toplevel);
+-		g_object_unref (xml);
+-		gtk_main_quit ();
+-	}
+-
++	add_cups_printer (xml, uri, ppd, name);
+ 	g_free (uri);
+ 	g_free (name);
+ 
+@@ -369,24 +369,24 @@
+ 		fprintf (stdout, "gnome-printer-add version %s\n", PACKAGE_VERSION);
+ 		exit (0);
+ 	}
+-	
++
+ 	if (printer_uri && check_printer_configured (printer_uri)) {
+ 		fprintf (stdout, "printer already configured.\n");
+ 		exit (0);
+ 	}
+ 	
+-	if (!gnome_cups_can_admin ()) {
+-		if (gnome_cups_spawn ("gnome-cups-add", argc - 1,
+-				      (char const **)(argv + 1), TRUE, NULL))
+-			exit (0);
+-		else
+-			exit (1);
+-	}
+-	
+ 	glade_init ();
+ 	gnome_cups_ui_init (argv[0]);
+ 	
+-	xml = glade_xml_new (GNOME_CUPS_MANAGER_DATADIR "/gnome-cups-add.glade", "add_printer_window", GETTEXT_PACKAGE);
++    if (!gnome_cups_printer_op_authorized (NULL, CUPS_ADD_PRINTER)) {
++        if (gnome_cups_spawn ("gnome-cups-add", argc - 1,
++                             (char const **)(argv + 1), TRUE, NULL))
++            exit (0);
++        else
++            exit (1);
++    }
++	
++    xml = glade_xml_new (GNOME_CUPS_MANAGER_DATADIR "/gnome-cups-add.glade", "add_printer_window", GETTEXT_PACKAGE);
+ 	
+ 	window = glade_xml_get_widget (xml, "add_printer_window");
+ 	set_window_icon (window, "gnome-dev-printer-new");
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-cups-manager.glade ./gnome-cups-manager/gnome-cups-manager.glade
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-cups-manager.glade	2005-03-04 09:36:29.000000000 -0500
++++ ./gnome-cups-manager/gnome-cups-manager.glade	2007-06-04 16:11:11.000000000 -0400
+@@ -18,6 +18,8 @@
+   <property name="skip_pager_hint">False</property>
+   <property name="type_hint">GDK_WINDOW_TYPE_HINT_NORMAL</property>
+   <property name="gravity">GDK_GRAVITY_NORTH_WEST</property>
++  <property name="focus_on_map">True</property>
++  <property name="urgency_hint">False</property>
+ 
+   <child>
+     <widget class="GtkVBox" id="vbox13">
+@@ -28,6 +30,8 @@
+       <child>
+ 	<widget class="GtkMenuBar" id="menubar1">
+ 	  <property name="visible">True</property>
++	  <property name="pack_direction">GTK_PACK_DIRECTION_LTR</property>
++	  <property name="child_pack_direction">GTK_PACK_DIRECTION_LTR</property>
+ 
+ 	  <child>
+ 	    <widget class="GtkMenuItem" id="printer_item">
+@@ -284,6 +288,8 @@
+   <property name="skip_pager_hint">False</property>
+   <property name="type_hint">GDK_WINDOW_TYPE_HINT_NORMAL</property>
+   <property name="gravity">GDK_GRAVITY_NORTH_WEST</property>
++  <property name="focus_on_map">True</property>
++  <property name="urgency_hint">False</property>
+ 
+   <child>
+     <widget class="GtkVBox" id="vbox14">
+@@ -331,8 +337,8 @@
+ 		  <property name="single_line_mode">False</property>
+ 		  <property name="angle">0</property>
+ 		  <accessibility>
+-		    <atkrelation target="location_label" type="label-for"/>
+ 		    <atkrelation target="location_entry" type="label-for"/>
++		    <atkrelation target="location_label" type="label-for"/>
+ 		  </accessibility>
+ 		</widget>
+ 		<packing>
+@@ -364,8 +370,8 @@
+ 		  <property name="single_line_mode">False</property>
+ 		  <property name="angle">0</property>
+ 		  <accessibility>
+-		    <atkrelation target="description_label" type="label-for"/>
+ 		    <atkrelation target="description_entry" type="label-for"/>
++		    <atkrelation target="description_label" type="label-for"/>
+ 		  </accessibility>
+ 		</widget>
+ 		<packing>
+@@ -1323,18 +1329,6 @@
+ 	  <property name="spacing">4</property>
+ 
+ 	  <child>
+-	    <widget class="GtkButton" id="admin_button">
+-	      <property name="visible">True</property>
+-	      <property name="can_default">True</property>
+-	      <property name="can_focus">True</property>
+-	      <property name="label" translatable="yes">Become _Administrator</property>
+-	      <property name="use_underline">True</property>
+-	      <property name="relief">GTK_RELIEF_NORMAL</property>
+-	      <property name="focus_on_click">True</property>
+-	    </widget>
+-	  </child>
+-
+-	  <child>
+ 	    <widget class="GtkButton" id="test_page_button">
+ 	      <property name="visible">True</property>
+ 	      <property name="can_default">True</property>
+@@ -1445,6 +1439,8 @@
+   <property name="skip_pager_hint">False</property>
+   <property name="type_hint">GDK_WINDOW_TYPE_HINT_NORMAL</property>
+   <property name="gravity">GDK_GRAVITY_NORTH_WEST</property>
++  <property name="focus_on_map">True</property>
++  <property name="urgency_hint">False</property>
+ 
+   <child>
+     <widget class="GtkVBox" id="vbox19">
+@@ -1455,6 +1451,8 @@
+       <child>
+ 	<widget class="GtkMenuBar" id="menubar2">
+ 	  <property name="visible">True</property>
++	  <property name="pack_direction">GTK_PACK_DIRECTION_LTR</property>
++	  <property name="child_pack_direction">GTK_PACK_DIRECTION_LTR</property>
+ 
+ 	  <child>
+ 	    <widget class="GtkMenuItem" id="printer1">
+@@ -1587,14 +1585,6 @@
+ 		  </child>
+ 
+ 		  <child>
+-		    <widget class="GtkMenuItem" id="become_admin_item">
+-		      <property name="visible">True</property>
+-		      <property name="label" translatable="yes">Become _Administrator</property>
+-		      <property name="use_underline">True</property>
+-		    </widget>
+-		  </child>
+-
+-		  <child>
+ 		    <widget class="GtkMenuItem" id="make_default_item">
+ 		      <property name="visible">True</property>
+ 		      <property name="label" translatable="yes">Make _Default</property>
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-printer-list.c ./gnome-cups-manager/gnome-printer-list.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-printer-list.c	2005-02-28 14:05:22.000000000 -0500
++++ ./gnome-cups-manager/gnome-printer-list.c	2007-06-05 14:06:54.000000000 -0400
+@@ -37,6 +37,7 @@
+ #include <glib.h>
+ #include <glib/gi18n.h>
+ 
++#include <libgnomecups/gnome-cups-request.h>
+ #include <libgnomecups/gnome-cups-printer.h>
+ #include <libgnomecups/gnome-cups-ui-util.h>
+ #include <libgnomecups/gnome-cups-permission.h>
+@@ -250,10 +251,9 @@
+ 	GList *l;
+ 	GList *selection;
+ 	int num_selected;
+-	gboolean new_printer_selected;
+-	gboolean all_paused;
+-	gboolean has_default;
+-	gboolean all_running;
++	gboolean new_printer_selected = FALSE;
++	gboolean has_default = FALSE, all_paused = TRUE, all_running = TRUE;
++    gboolean can_pause = TRUE, can_resume = TRUE, can_delete = TRUE;
+ 
+ 	selection = egg_icon_list_get_selected (EGG_ICON_LIST (list));
+ 	
+@@ -285,11 +285,6 @@
+ 		return;
+ 	}
+ 	
+-	new_printer_selected = FALSE;
+-	all_paused = TRUE;
+-	all_running = TRUE;
+-	has_default = FALSE;
+-
+ 	for (l = selection; l != NULL; l = l->next) {
+ 		EggIconListItem *item;
+ 		
+@@ -310,6 +305,13 @@
+ 			if (gnome_cups_printer_get_is_default (printer)) {
+ 				has_default = TRUE;
+ 			}
++
++            if (!gnome_cups_printer_op_authorized (printer, IPP_PAUSE_PRINTER))
++                can_pause = FALSE;
++            if (!gnome_cups_printer_op_authorized (printer, IPP_RESUME_PRINTER))
++                can_resume = FALSE;
++            if (!gnome_cups_printer_op_authorized (printer, CUPS_DELETE_PRINTER))
++                can_delete = FALSE;
+ 		}
+ 	}
+ 	
+@@ -317,22 +319,22 @@
+ 		*activate = TRUE;
+ 	}
+ 	
+-	if (pause) {
+-		*pause = !new_printer_selected && !all_paused && gnome_cups_can_admin ();
+-	}
++    if (pause) {
++        *pause = !new_printer_selected && !all_paused && can_pause;
++    }
+ 	
+ 	if (resume) {
+-		*resume = !new_printer_selected && !all_running && gnome_cups_can_admin ();
++		*resume = !new_printer_selected && !all_running && can_resume;
+ 	}
+-	
++
+ 	if (make_default) {
+ 		*make_default = !new_printer_selected && num_selected == 1 && !has_default;
+ 	}
+ 	
+ 	if (del) {
+-		*del = !new_printer_selected && gnome_cups_can_admin ();
++		*del = !new_printer_selected && can_delete;
+ 	}
+-	
++
+ 	if (properties) {
+ 		*properties = !new_printer_selected;
+ 	}
+@@ -616,7 +619,7 @@
+ 	GtkWidget *toplevel = NULL;
+ 	if (list != NULL)
+ 		toplevel = gtk_widget_get_toplevel (GTK_WIDGET (list));
+-	gnome_cups_spawn ("gnome-cups-add", 0, NULL, TRUE, toplevel);
++	gnome_cups_spawn ("gnome-cups-add", 0, NULL, FALSE, toplevel);
+ }
+ 
+ void
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/printer-properties.c ./gnome-cups-manager/printer-properties.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/printer-properties.c	2007-06-08 13:47:35.000000000 -0400
++++ ./gnome-cups-manager/printer-properties.c	2007-06-04 17:03:51.000000000 -0400
+@@ -69,22 +69,6 @@
+ }
+ 
+ static void
+-label_vs_entry (GladeXML *xml,
+-		char const *entry, char const *label, char const *val)
+-{
+-	GtkWidget *w = glade_xml_get_widget (xml, entry);
+-	if (gnome_cups_can_admin ())
+-		gtk_entry_set_text (GTK_ENTRY (w), val);
+-	else
+-		gtk_widget_hide (w);
+-	w = glade_xml_get_widget (xml, label);
+-	if (gnome_cups_can_admin ())
+-		gtk_widget_hide (w);
+-	else
+-		gtk_label_set_text (GTK_LABEL (w), val);
+-}
+-
+-static void
+ update_general_page (GladeXML *xml)
+ {
+ 	GnomeCupsPrinter *printer = g_object_get_data (G_OBJECT (xml), "printer");
+@@ -101,10 +85,26 @@
+ 	w = glade_xml_get_widget (xml, "name_label");
+ 	gtk_label_set_text (GTK_LABEL (w),
+ 		gnome_cups_printer_get_name (printer));
+-	label_vs_entry (xml, "description_entry", "description_label",
+-		gnome_cups_printer_get_description (printer));
+-	label_vs_entry (xml, "location_entry", "location_label",
+-		gnome_cups_printer_get_location (printer));
++
++    if (gnome_cups_printer_op_authorized (printer, IPP_SET_PRINTER_ATTRIBUTES)) {
++        w = glade_xml_get_widget (xml, "description_entry");
++		gtk_entry_set_text (GTK_ENTRY (w), gnome_cups_printer_get_description (printer));
++        w = glade_xml_get_widget (xml, "location_entry");
++		gtk_entry_set_text (GTK_ENTRY (w), gnome_cups_printer_get_location (printer));
++        w = glade_xml_get_widget (xml, "description_label");
++        gtk_widget_hide (w);
++        w = glade_xml_get_widget (xml, "location_label");
++        gtk_widget_hide (w);
++    } else {
++        w = glade_xml_get_widget (xml, "description_label");
++		gtk_label_set_text (GTK_LABEL (w), gnome_cups_printer_get_description (printer));
++        w = glade_xml_get_widget (xml, "location_label");
++		gtk_label_set_text (GTK_LABEL (w), gnome_cups_printer_get_location (printer));
++        w = glade_xml_get_widget (xml, "description_entry");
++        gtk_widget_hide (w);
++        w = glade_xml_get_widget (xml, "location_entry");
++        gtk_widget_hide (w);
++    }
+ 
+ 	w = glade_xml_get_widget (xml, "status_label");
+ 	gtk_label_set_text (GTK_LABEL (w),
+@@ -346,11 +346,11 @@
+ }
+ 
+ static void
+-setup_general_page (GladeXML *xml)
++setup_general_page (GladeXML *xml, GnomeCupsPrinter *printer)
+ {
+ 	update_general_page (xml);
+ 
+-	if (gnome_cups_can_admin ()) {
++	if (gnome_cups_printer_op_authorized (printer, CUPS_ADD_PRINTER)) {
+ 		setup_entry (xml, "description_entry");
+ 		setup_entry (xml, "location_entry");
+ 	}
+@@ -497,6 +497,7 @@
+ 	GList *options;
+ 	GList *l;
+ 	int num_editors;
++    gboolean perm = FALSE;
+ 
+ 	printer = g_object_get_data (G_OBJECT (xml), "printer");
+ 	scrolled = glade_xml_get_widget (xml, "advanced_scrolled");
+@@ -511,6 +512,7 @@
+ 	g_object_weak_ref (G_OBJECT (xml), unref_group, editor_group);
+ 
+ 	options = gnome_cups_printer_get_options (printer);
++    perm = gnome_cups_printer_op_authorized (printer, IPP_SET_PRINTER_ATTRIBUTES);
+ 
+ 	num_editors = 0;
+ 	for (l = options; l != NULL; l = l->next) {
+@@ -523,6 +525,7 @@
+ 						       printer, option,
+ 						       label_group, editor_group);
+ 			gtk_widget_show (widget);
++            gtk_widget_set_sensitive (widget, perm);
+ 
+ 			gtk_box_pack_start (GTK_BOX (vbox), widget, FALSE, FALSE, 0);
+ 			num_editors++;
+@@ -558,11 +561,11 @@
+ 	ppd_file_t *ppd;
+ 	ppd_attr_t *nickname;
+ 
+-	if (!gnome_cups_can_admin ())
+-		return;
+-	if (printer == NULL)
++    if (printer == NULL ||
++        !gnome_cups_printer_op_authorized (printer, CUPS_ADD_PRINTER))
+ 		return;
+-	ppd = gnome_cups_printer_get_ppd (printer);
++	
++    ppd = gnome_cups_printer_get_ppd (printer);
+ 	if (ppd == NULL)
+ 		return;
+ 
+@@ -611,9 +614,9 @@
+ setup_connection_page (GladeXML *xml, GnomeCupsPrinter *printer)
+ {
+ 	GtkWidget  *w, *cs;
+-	if (!gnome_cups_can_admin ())
+-		return;
+-	if (printer == NULL)
++	
++    if (printer == NULL ||
++        !gnome_cups_printer_op_authorized (printer, CUPS_ADD_PRINTER))
+ 		return;
+ 
+ 	cs = gcups_connection_selector_new ();
+@@ -635,17 +638,6 @@
+ 		G_CALLBACK (cb_connection_changed), printer, 0);
+ }
+ 
+-static void
+-cb_become_admin (GnomeCupsPrinter *printer)
+-{
+-	char const *argv[] = { "-p", NULL };
+-	GladeXML *xml = g_object_get_data (G_OBJECT (printer), "properties-window");
+-	argv[1] = gnome_cups_printer_get_name (printer);
+-	if (gnome_cups_spawn ("gnome-cups-manager", G_N_ELEMENTS (argv), argv,
+-			      TRUE, glade_xml_get_widget (xml, "properties_window")))
+-		gtk_main_quit ();
+-}
+-
+ void
+ gnome_cups_manager_printer_properties (GnomeCupsPrinter *printer)
+ {
+@@ -689,20 +681,12 @@
+ 				(GDestroyNotify)g_hash_table_destroy);
+ 
+ 	update_title (xml);
+-	setup_general_page (xml);
++	setup_general_page (xml, printer);
+ 	setup_paper_page (xml);
+ 	setup_advanced_page (xml);
+ 	setup_driver_page (xml, printer);
+ 	setup_connection_page (xml, printer);
+ 
+-	button = glade_xml_get_widget (xml, "admin_button");
+-	if (gnome_cups_can_admin ())
+-		gtk_widget_hide (button);
+-	else
+-		g_signal_connect_swapped (button,
+-			"clicked",
+-			G_CALLBACK (cb_become_admin), printer);
+-
+ 	button = glade_xml_get_widget (xml, "test_page_button");
+ 	g_signal_connect (button,
+ 		"clicked",
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-printers.c ./gnome-cups-manager/view-printers.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-printers.c	2004-10-01 15:10:03.000000000 -0400
++++ ./gnome-cups-manager/view-printers.c	2007-06-04 16:12:13.000000000 -0400
+@@ -133,16 +133,6 @@
+ }
+ 
+ static void
+-become_admin_cb (GtkWidget *item, gpointer user_data)
+-{
+-	GladeXML *xml = GLADE_XML (user_data);
+-	if (gnome_cups_spawn ("gnome-cups-manager", 0, NULL,
+-			      TRUE, glade_xml_get_widget (xml, "printer_window")))
+-		gtk_main_quit ();
+-
+-}
+-
+-static void
+ make_default_cb (GtkWidget *item,
+ 	       gpointer user_data)
+ {
+@@ -193,9 +183,6 @@
+ 	item = glade_xml_get_widget (xml, "resume_item");
+ 	g_signal_connect (item, "activate", G_CALLBACK (resume_cb), xml);
+ 
+-	item = glade_xml_get_widget (xml, "become_admin_item");
+-	g_signal_connect (item, "activate", G_CALLBACK (become_admin_cb), xml);
+-
+ 	item = glade_xml_get_widget (xml, "make_default_item");
+ 	g_signal_connect (item, "activate", G_CALLBACK (make_default_cb), xml);
+ 
+@@ -231,11 +218,6 @@
+ 	item = glade_xml_get_widget (xml, "resume_item");
+ 	gtk_widget_set_sensitive (item, resume);
+ 
+-	if (gnome_cups_can_admin ()) {
+-		item = glade_xml_get_widget (xml, "become_admin_item");
+-		gtk_widget_hide (item);
+-	}
+-
+ 	item = glade_xml_get_widget (xml, "make_default_item");
+ 	gtk_widget_set_sensitive (item, make_default);
+ 
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-queue.c ./gnome-cups-manager/view-queue.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-queue.c	2005-03-04 09:36:29.000000000 -0500
++++ ./gnome-cups-manager/view-queue.c	2007-06-05 16:39:15.000000000 -0400
+@@ -190,6 +190,21 @@
+ }
+ 
+ static void
++selection_owns_all_cb (GtkTreeModel *model,
++			    GtkTreePath *path,
++			    GtkTreeIter *iter, 
++			    gpointer user_data)
++{
++    const char *owner = NULL;
++    gboolean *is_owner = user_data;
++
++	gtk_tree_model_get (model, iter, COLUMN_OWNER, &owner, -1);
++    if (!strcmp (g_get_user_name (), owner)) {
++        *is_owner = TRUE;
++    }
++}
++
++static void
+ get_menu_sensitivities (GladeXML *xml,
+ 			gboolean *pause,
+ 			gboolean *resume, 
+@@ -197,29 +212,38 @@
+ {
+ 	GtkTreeView *view;
+ 	GtkTreeSelection *selection;
++    GnomeCupsPrinter *printer;
++    gboolean is_owner = FALSE;
+ 	
+ 	view = GTK_TREE_VIEW (glade_xml_get_widget (xml, "queue_view"));
++	printer = g_object_get_data (G_OBJECT (xml), "printer");
+ 
+ 	selection = gtk_tree_view_get_selection (view);
++	gtk_tree_selection_selected_foreach (selection, selection_owns_all_cb, &is_owner);
++
+ 	if (pause) {
+ 		*pause = FALSE;
+-		if (gnome_cups_can_admin ())
++		if (is_owner || gnome_cups_printer_op_authorized (printer, IPP_HOLD_JOB)) {
+ 			gtk_tree_selection_selected_foreach (selection,
+ 				selection_has_running_cb, pause);
++        }
+ 	}
+ 
+ 	if (resume) {
+ 		*resume = FALSE;
+-		if (gnome_cups_can_admin ())
++		if (is_owner || gnome_cups_printer_op_authorized (printer, IPP_RELEASE_JOB)) {
+ 			gtk_tree_selection_selected_foreach (selection,
+ 				selection_has_paused_cb, resume);
++        }
+ 	}
+ 
+ 	if (cancel) {
+ 		*cancel = FALSE;
+-		gtk_tree_selection_selected_foreach (selection,
++        if (is_owner || gnome_cups_printer_op_authorized (printer, IPP_CANCEL_JOB)) {
++		    gtk_tree_selection_selected_foreach (selection,
+ 						     selection_has_selection_cb,
+ 						     cancel);
++        }
+ 	}
+ }
+ 
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.c ./libgnomecups/gnome-cups-permission.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.c	2007-06-08 13:47:35.000000000 -0400
++++ ./libgnomecups/gnome-cups-permission.c	2007-06-05 14:07:54.000000000 -0400
+@@ -27,47 +27,10 @@
+ #include <glib/gi18n.h>
+ #include <unistd.h>
+ #include <sys/types.h>
+-#include <grp.h>
+-#include <pwd.h>
+ #include <string.h>
+ 
+ static char *gnome_cups_app_path = NULL;
+ 
+-gboolean
+-gnome_cups_can_admin ()
+-{
+-	uid_t euid;
+-	struct group *gr;
+-	int i;
+-
+-	euid = geteuid ();
+-
+-	if (euid == 0)
+-		return TRUE;
+-	
+-	/*
+-	 * SUSE runs cups with the lp user, and allows access to users in
+-	 * the lp group
+-	 */
+-	gr = getgrnam ("lp");
+-
+-	if (gr == NULL) {
+-		g_warning ("Unable to find lp group");
+-		return FALSE;
+-	}
+-
+-	for (i = 0; gr->gr_mem [i] != NULL; i++) {
+-		struct passwd *pw;
+-
+-		pw = getpwnam (gr->gr_mem [i]);
+-
+-		if (pw != NULL && pw->pw_uid == euid)
+-			return TRUE;
+-	}
+-
+-	return FALSE;
+-}
+-
+ void
+ gnome_cups_checkpath (char const *argv_0)
+ {
+@@ -115,7 +78,7 @@
+ 	unsigned offset, i = 0;
+ 	GError *err = NULL;
+ 
+-	if (force_admin && !gnome_cups_can_admin ())
++	if (force_admin)
+ 		for (i = 0 ; i < G_N_ELEMENTS (su_app) ; i++)
+ 			args [i] = (char *)su_app [i];
+ 	offset = i;
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.h ./libgnomecups/gnome-cups-permission.h
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.h	2004-08-18 22:45:33.000000000 -0400
++++ ./libgnomecups/gnome-cups-permission.h	2007-06-05 14:00:53.000000000 -0400
+@@ -7,7 +7,6 @@
+ G_BEGIN_DECLS
+ 
+ void	 gnome_cups_checkpath (char const *argv_0);
+-gboolean gnome_cups_can_admin (void);
+ gboolean gnome_cups_spawn     (char const *app, int argc, char const **argv,
+ 			       gboolean force_admin, GtkWidget *toplevel);
+ 
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-ui-init.c ./libgnomecups/gnome-cups-ui-init.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-ui-init.c	2005-04-13 18:09:03.000000000 -0400
++++ ./libgnomecups/gnome-cups-ui-init.c	2007-06-08 13:30:37.000000000 -0400
+@@ -17,10 +17,7 @@
+ static void
+ password_activate_cb (GtkWidget *entry, gpointer user_data)
+ {
+-	GtkDialog *dialog;
+-	
+-	dialog = GTK_DIALOG (user_data);
+-	
++	GtkDialog *dialog = GTK_DIALOG (user_data);
+ 	gtk_dialog_response (dialog, GTK_RESPONSE_OK);
+ }
+ 
+@@ -36,20 +33,17 @@
+ 	GtkWidget *password_entry;
+ 	GtkWidget *box;
+ 	GtkSizeGroup *size_group;
+-	gboolean ret;
++    gboolean ret;
+ 	int response;
+ 
+-	/* FIXME: This should grab and stuff.  ugh */
+-	g_warning ("BROKEN : Something is attempting to authenticate with a prompt '%s'",
+-		   prompt);
+-	return FALSE;
+-	
+ 	dialog = gtk_dialog_new_with_buttons (_("Password"),
+ 					      NULL, 
+ 					      GTK_DIALOG_MODAL,
+ 					      GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+ 					      GTK_STOCK_OK, GTK_RESPONSE_OK,
+ 					      NULL);
++	
++    set_window_icon (dialog, "gnome-dev-printer-new");
+ 	gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_OK);
+ 
+ 	label = gtk_label_new (_("Enter a username and password to modify this printer:"));
