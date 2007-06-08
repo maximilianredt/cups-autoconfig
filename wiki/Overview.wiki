@@ -6,7 +6,8 @@ The purpose of this project is to improve the desktop printing experience.
 
 = cups-autoconfig =
 
-== Workflow ==
+*Workflow*
+
 This is a smally utility that runs, via a HAL callout, whenever a local printer is added or removed.  It gathers information via HAL, CUPS, and the CUPS backends to determine the appropriate action.
 
 Settings for this utility are controlled via /etc/sysconfig/printers.  It contains the following values:
@@ -23,11 +24,11 @@ When a local printer is added to the system cups-autoconfig determines if the pr
 
 When a local printer is removed the CUPS_AUTOCONFIG_DISABLE variable is consulted.  If the variable is set to "yes" then the printer is disabled.
 
-== DBUS Signals ==
+*DBUS Signals* 
 
 Results of cups-autoconfig operations are reported via DBUS messages on the System bus.  If a new printer is successfully configured then a PrinterInfo message is sent via the org.cups.CupsAutoconfig interface.  If configuration fails (unable to find a matching driver, adding the queue fails, etc) then a PrinterConfigRequired message is sent using the same interface.  Policy applications running in the user's session should watch for these messages and take appropriate action.  See the gnome-volume-manager section for details.
 
-== Removal of the HAL backend from cups-backends ==
+= Removal of the HAL backend from cups-backends =
 
 Unfortunately, the HAL CUPS backend needs to be removed.  Ideally, HAL would be used for all hardware detection, but using the HAL backend complicates the process without buying us anything.  The usb backend is what is supported upstream and has to be supported in openSUSE.  Both backends detect the same printers and require complicated uri mapping schemes to avoid ambiguities.  This is more work that it's worth.
 
@@ -35,13 +36,13 @@ Unfortunately, the HAL CUPS backend needs to be removed.  Ideally, HAL would be 
 
 One of the major requirements for this project was to allow local users to perform reasonable actions (add, modify, remove, etc) on local printers.  Policies were added to CUPS 1.2, which is what we decided to use for this.  A few small changes to CUPS were required in order to smoothly integrate policy support.
 
-== A relaxed policy ==
+*A relaxed policy*
 
-== Domain socket authentication ==
+*Domain socket authentication*
 
-== Policy query IPP extension ==
+*Policy query IPP extension*
 
-== Using the printer policy for delete operations ==
+*Using the printer policy for delete operations*
 
 = libgnomecups changes =
 
