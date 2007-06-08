@@ -38,11 +38,15 @@ One of the major requirements for this project was to allow local users to perfo
 
 *A relaxed policy*
 
+A new CUPS policy has been defined to allow normal users to perform operations on local printers.  The policy allows users to add new printers, remove existing printers, pause printers, resume printers, and modify printer attributes.  The is the default policy used by cups-autoconfig for new local printers.
+
 *Domain socket authentication*
+
+The CUPS policy layer handles authorization, but not authentication.  Support was added to CUPS to retrieve the SO_PEERCRED from the local CUPS domain socket in order to verify the identity of the user performing an IPP operation.  This allows users to perform an operation on local printers without typing their password again.  This patch has been sent upstream by Tim Waugh, but is not yet accepted.  It looks like it will make it for CUPS 1.3.  It works well for CUPS 1.2 though.
 
 *Policy query IPP extension*
 
-*Using the printer policy for delete operations*
+Although CUPS has support for policies it doesn't have a reasonable way to figure out if a  user can perform an action given a policy.  This is required to correctly initialize a graphical printing tool, like gnome-cups-manager.  A new CUPS IPP extension has been added, CUPS_IS_AUTHORIZED.  This extension provides a way to determine if a user can perform a set of actions for a given policy.
 
 = libgnomecups changes =
 
