@@ -2,7 +2,7 @@
 
 if test -f @SYSCONFDIR@/sysconfig/printers; then
     . @SYSCONFDIR@/sysconfig/printers
-    export CUPS_AUTO_CONFIG CUPS_AUTO_DISABLE CUPS_AUTO_CONFIG_DEBUG CUPS_PRINTER_POLICY
+    export CUPS_AUTOCONFIG_ENABLE CUPS_AUTOCONFIG_DISABLE CUPS_AUTOCONFIG_DEBUG CUPS_AUTOCONFIG_POLICY
 fi
 
 @LIBDIR@/cups-autoconfig/cups-autoconfig $@
