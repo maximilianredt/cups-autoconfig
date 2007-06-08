@@ -2,7 +2,28 @@
 
 = Introduction =
 
+The purpose of this project is to improve the desktop printing experience.  
+
 = cups-autoconfig =
+
+== Workflow ==
+This is a smally utility that runs, via a HAL callout, whenever a local printer is added or removed.  It gathers information via HAL, CUPS, and the CUPS backends to determine the appropriate action.
+
+Settings for this utility are controlled via /etc/sysconfig/printers.  It contains the following values:
+
+CUPS_AUTOCONFIG_ENABLE - Controls local printers being auto-configured on addition.
+
+CUPS_AUTOCONFIG_DISABLE - Controls local printers being disabled on removal.
+
+CUPS_AUTOCONFIG_DEBUG - Controls debugging output /var/log/cups-autoconfig.log.
+
+CUPS_AUTOCONFIG_PRINTER_POLICY: The name of the CUPS policy to assign to newly configured printers.
+
+When a local printer is added to the system cups-autoconfig determines if the printer is already configured.  If the printer is configured then the printer is enabled.  If the printer is not configured then cups-autoconfig attempts to select the appropriate driver for the new printer and, if successful, creates a new print queue.  If the CUPS_AUTOCONFIG_PRINTER_POLICY variable is set it will assign the named policy to the new printer.
+
+When a local printer is removed the CUPS_AUTOCONFIG_DISABLE variable is consulted.  If the variable is set to "yes" then the printer is disabled.
+
+== DBUS Signals ==
 
 = CUPS changes =
 
@@ -11,3 +32,11 @@
 = gnome-cups-manager changes =
 
 = gnome-volume-manager changes =
+
+= TODO =
+
+
+
+
+
+
