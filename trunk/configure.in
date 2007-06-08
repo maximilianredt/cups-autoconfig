@@ -6,8 +6,6 @@ AM_MAINTAINER_MODE
 
 AM_CONFIG_HEADER(config.h)
 
-m4_pattern_allow([^AS_AC_EXPAND])
-
 AC_ARG_WITH([slibdir], AS_HELP_STRING([--with-slibdir=PATH],
     [Path to the super lib directory [[/lib]]]),
     [slibdir="$withval"], [slibdir="/lib"])
@@ -51,16 +49,16 @@ PKG_CHECK_MODULES(DBUS, dbus-1)
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
-PREFIX=$prefix
+AS_AC_EXPAND(PREFIX, $prefix)
 AC_SUBST(PREFIX)
 
-SYSCONFDIR=$sysconfdir
+AS_AC_EXPAND(SYSCONFDIR, $sysconfdir)
 AC_SUBST(SYSCONFDIR)
 
-DATADIR=$datadir
+AS_AC_EXPAND(DATADIR, $datadir)
 AC_SUBST(DATADIR)
 
-LIBDIR=$libdir
+AS_AC_EXPAND(LIBDIR, $libdir)
 AC_SUBST(LIBDIR)
 
 AC_OUTPUT([

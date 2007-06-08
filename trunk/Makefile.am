@@ -17,5 +17,5 @@ rpm: dist
 	--define "_srcrpmdir $(WORKDIR)/rpm/SRPMS" \
 	--define "_rpmdir $(WORKDIR)/rpm/RPMS" -ba cups-autoconfig.spec
 
-EXTRA_DIST = intltool-extract.in intltool-merge.in intltool-update.in 10-cups-autoconfig.fdi printers
+EXTRA_DIST = intltool-extract.in intltool-merge.in intltool-update.in 10-cups-autoconfig.fdi printers as-ac-expand.m4
 CLEANFILES = intltool-extract intltool-merge intltool-update

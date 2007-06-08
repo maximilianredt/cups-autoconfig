@@ -32,7 +32,6 @@ Authors:
 
 %build
 export CFLAGS="$RPM_OPT_FLAGS"
-autoreconf --force --install
 %configure --with-slibdir=/%{_lib}
 
 %install
