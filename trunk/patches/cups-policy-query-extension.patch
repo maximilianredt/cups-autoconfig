@@ -42,15 +42,6 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
  	  default :
  	      cupsdAddEvent(CUPSD_EVENT_SERVER_AUDIT, NULL, NULL,
                  	    "%04X %s Operation %04X (%s) not supported",
-@@ -5026,7 +5032,7 @@
-   * Check policy...
-   */
- 
--  if ((status = cupsdCheckPolicy(DefaultPolicyPtr, con, NULL)) != HTTP_OK)
-+  if ((status = cupsdCheckPolicy(printer ? printer->op_policy_ptr : DefaultPolicyPtr, con, NULL)) != HTTP_OK)
-   {
-     send_http_error(con, status);
-     return;
 @@ -9162,6 +9168,78 @@
                             con, owner) == HTTP_OK);
  }
