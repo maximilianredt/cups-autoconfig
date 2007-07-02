@@ -1,6 +1,6 @@
 diff -ur /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h ./cups/ipp.h
 --- /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h	2006-08-24 11:55:42.000000000 -0400
-+++ ./cups/ipp.h	2007-06-01 11:55:24.000000000 -0400
++++ ./cups/ipp.h	2007-07-02 13:41:59.000000000 -0400
 @@ -254,7 +254,8 @@
    CUPS_GET_DEVICES,			/* Get a list of supported devices */
    CUPS_GET_PPDS,			/* Get a list of supported drivers */
@@ -13,7 +13,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h ./cups/ipp.h
  /* Old names for the operations */
 diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
 --- /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c	2007-04-23 16:36:09.000000000 -0400
-+++ ./scheduler/ipp.c	2007-06-05 15:05:33.000000000 -0400
++++ ./scheduler/ipp.c	2007-07-02 14:16:47.000000000 -0400
 @@ -197,7 +197,7 @@
  static int	validate_user(cupsd_job_t *job, cupsd_client_t *con,
  		              const char *owner, char *username,
@@ -31,7 +31,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
  	   con->request->request.op.operation_id != CUPS_GET_PPDS))
        {
         /*
-@@ -584,6 +586,10 @@
+@@ -584,6 +585,10 @@
  	      get_notifications(con);
  	      break;
  
@@ -42,81 +42,93 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
  	  default :
  	      cupsdAddEvent(CUPSD_EVENT_SERVER_AUDIT, NULL, NULL,
                  	    "%04X %s Operation %04X (%s) not supported",
-@@ -9162,6 +9168,78 @@
+@@ -9162,6 +9167,90 @@
                             con, owner) == HTTP_OK);
  }
  
 +static void
 +check_policy_authorization (cupsd_client_t *con)
 +{
-+    ipp_attribute_t *id_attr, *user_attr, *owner_attr;
-+    cupsd_policy_t **p;
-+    ipp_t **results = NULL;
-+    int i, j, *perms;
++  ipp_attribute_t *id_attr;    /* operation ids */
++  ipp_attribute_t *user_attr;  /* requesting-user-name attribute */
++  ipp_attribute_t *owner_attr; /* optional owner attribute */
++  cupsd_policy_t **p;          /* pointer used to iterate over the policies */
++  ipp_t **results = NULL;      /* what we're sending back to the caller */
++  int *perms;                  /* a temporary permissions array */
++  int i;                       /* policy index */
++  int j;                       /* id index */
 +
-+    if ((user_attr = ippFindAttribute (con->request, "requesting-user-name",IPP_TAG_NAME)) == NULL) {
-+        send_ipp_status(con, IPP_BAD_REQUEST, _("A requesting-user-name was not provided"));
-+        return;
-+    }
++  if ((user_attr = ippFindAttribute (con->request, "requesting-user-name",IPP_TAG_NAME)) == NULL)
++  {
++    send_ipp_status(con, IPP_BAD_REQUEST, _("A requesting-user-name was not provided"));
++    return;
++  }
 +   
-+    if ((id_attr = ippFindAttribute (con->request, "operation-ids", IPP_TAG_INTEGER)) == NULL) {
-+        send_ipp_status(con, IPP_BAD_REQUEST, _("An operation-id array was not provided"));
-+        return;
-+    }
++  if ((id_attr = ippFindAttribute (con->request, "operation-ids", IPP_TAG_INTEGER)) == NULL)
++  {
++    send_ipp_status(con, IPP_BAD_REQUEST, _("An operation-id array was not provided"));
++    return;
++  }
 +
-+    if (id_attr->num_values > CUPS_IS_AUTHORIZED) {
-+        send_ipp_status(con, IPP_BAD_REQUEST, _("Operation-id array is too large"));
-+        return;
-+    }
++  if (id_attr->num_values > CUPS_IS_AUTHORIZED)
++  {
++    send_ipp_status(con, IPP_BAD_REQUEST, _("Operation-id array is too large"));
++    return;
++  }
 +
-+    if (NumPolicies == 0) {
-+        ippAddCollections (con->response, IPP_TAG_OPERATION,
-+                           "permissions", 0, NULL);
-+        con->response->request.status.status_code = IPP_OK;
-+        return;
-+    }
-+
-+    owner_attr = ippFindAttribute (con->request, "owner", IPP_TAG_NAME);
-+
-+    results = malloc (sizeof (ipp_t *) * NumPolicies);
-+    if (results == NULL) {
-+        send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
-+        return;
-+    }
-+
-+    perms = malloc (sizeof (int) * id_attr->num_values);
-+    if (perms == NULL) {
-+        send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
-+        return;
-+    }
-+
-+    strlcpy(con->username, user_attr->values[0].string.text, sizeof(con->username));
-+
-+    for (i = 0, p = Policies; i < NumPolicies; i++, p++) {
-+        ipp_t *c = ippNew ();
-+        ippAddString (c, IPP_TAG_OPERATION, IPP_TAG_NAME,
-+                      "printer-op-policy", NULL, (*p)->name);
-+      
-+        for (j = 0; j < id_attr->num_values; j++) {
-+            ipp_op_t fake_id = id_attr->values[j].integer;
-+            con->request->request.op.operation_id = fake_id;
-+            perms[j] = cupsdCheckPolicy(*p, con, owner_attr ?
-+                            owner_attr->values[0].string.text : NULL) == HTTP_OK;
-+        }
-+
-+        ippAddIntegers (c, IPP_TAG_OPERATION, IPP_TAG_INTEGER,
-+                        "operation-permissions", id_attr->num_values, perms);
-+        results[i] = c;
-+    }
-+
++  if (NumPolicies == 0)
++  {
 +    ippAddCollections (con->response, IPP_TAG_OPERATION,
-+                       "permissions", NumPolicies, results);
-+
-+    free (perms);
-+    free (results);
-+    
-+    con->request->request.op.operation_id = CUPS_IS_AUTHORIZED;
++                       "permissions", 0, NULL);
 +    con->response->request.status.status_code = IPP_OK;
++    return;
++  }
++
++  owner_attr = ippFindAttribute (con->request, "owner", IPP_TAG_NAME);
++
++  results = malloc (sizeof (ipp_t *) * NumPolicies);
++  if (results == NULL)
++  {
++    send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
++    return;
++  }
++
++  perms = malloc (sizeof (int) * id_attr->num_values);
++  if (perms == NULL)
++  {
++    send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
++    return;
++  }
++
++  strlcpy(con->username, user_attr->values[0].string.text, sizeof(con->username));
++
++  for (i = 0, p = Policies; i < NumPolicies; i++, p++)
++  {
++    ipp_t *c = ippNew ();
++    ippAddString (c, IPP_TAG_OPERATION, IPP_TAG_NAME,
++                  "printer-op-policy", NULL, (*p)->name);
++      
++    for (j = 0; j < id_attr->num_values; j++)
++    {
++      ipp_op_t fake_id = id_attr->values[j].integer;
++      con->request->request.op.operation_id = fake_id;
++      perms[j] = cupsdCheckPolicy(*p, con, owner_attr ?
++                                  owner_attr->values[0].string.text : NULL) == HTTP_OK;
++    }
++
++    ippAddIntegers (c, IPP_TAG_OPERATION, IPP_TAG_INTEGER,
++                    "operation-permissions", id_attr->num_values, perms);
++    results[i] = c;
++  }
++
++  ippAddCollections (con->response, IPP_TAG_OPERATION,
++                     "permissions", NumPolicies, results);
++
++  free (perms);
++  free (results);
++    
++  con->request->request.op.operation_id = CUPS_IS_AUTHORIZED;
++  con->response->request.status.status_code = IPP_OK;
 +}
  
  /*
