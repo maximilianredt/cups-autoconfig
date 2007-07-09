@@ -17,7 +17,7 @@ Summary:        A Utility to Auto-configure printers.
 Autoreqprov:    on
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 Requires:       cups >= 1.2 glib2 >= 2.8 hal dbus-1
-BuildRequires:  glib2-devel >= 2.8 dbus-1-devel intltool
+BuildRequires:  glib2-devel >= 2.8 dbus-1-devel intltool hal cups-devel
 Source:         %{name}-%{version}.tar.gz
 
 %description
@@ -42,12 +42,13 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
+%doc %{_libdir}/cups-autoconfig
 %{_libdir}/cups-autoconfig/cups-autoconfig
 %{_libdir}/hal/scripts/hal-cups-autoconfig
-%{_sysconfdir}/sysconfig/printers
+%{_sysconfdir}/sysconfig/printerconfig
 %{_datadir}/hal/fdi/policy/10osvendor/10-cups-autoconfig.fdi
 %{_datadir}/locale/en_US/LC_MESSAGES/cups-autoconfig.mo
 
 %changelog -n cups-autoconfig 
-* Fri Jun 01 2007 - crivera@novell.com
+* Mon Jul 09 2007 - crivera@novell.com
 - Initial package 
