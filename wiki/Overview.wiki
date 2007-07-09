@@ -10,7 +10,7 @@ The purpose of this project is to improve the desktop printing experience.
 
 This is a smally utility that runs, via a HAL callout, whenever a local printer is added or removed.  It gathers information via HAL, CUPS, and the CUPS backends to determine the appropriate action.
 
-Settings for this utility are controlled via /etc/sysconfig/printers.  It contains the following values:
+Settings for this utility are controlled via /etc/sysconfig/printerconfig.  It contains the following values:
 
 CUPS_AUTOCONFIG_ENABLE - Controls local printers being auto-configured on addition.
 
@@ -77,7 +77,6 @@ A small patch was added to gnome-volume-manager to make it aware of the previous
 = TODO =
 
 Lots and lots of testing.
-
 
 
 
