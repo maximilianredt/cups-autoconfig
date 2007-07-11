@@ -1,3 +1,16 @@
+2007-07-11  Chris Rivera  <crivera@novell.com>
+
+	* Makefile.am:
+	* configure.in:
+	* src/cups-autoconfig.c:
+
+	Remove the sysconfig file in favor of a normal conf file.
+
+	* src/hal-cups-autoconfig.in:
+
+	Remove this wrapper script and have the callout call
+	cups-autoconfig directly.
+
 2007-07-09  Chris Rivera  <crivera@novell.com>
 
 	* Makefile.am:

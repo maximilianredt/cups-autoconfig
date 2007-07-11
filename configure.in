@@ -65,7 +65,7 @@ AC_OUTPUT([
 Makefile
 po/Makefile.in
 src/Makefile
-src/hal-cups-autoconfig
+10-cups-autoconfig.fdi
 ])
 
 echo
