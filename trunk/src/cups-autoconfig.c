@@ -19,12 +19,9 @@
 
 #include <dbus/dbus.h>
 
-//TODO: localize messages
-//TODO: change dbus message strings
-//TODO: use other backends
-
 #define CUPS_BACKEND_DIR LIBDIR "/cups/backend"
 #define LOGFILE "/var/log/cups-autoconfig.log"
+#define CONFIGFILE SYSCONFDIR "/cups-autoconfig.conf"
 
 #define dbg(fmt,arg...) log_it(TRUE, fmt, ##arg)
 #define err(fmt,arg...) log_it(FALSE, fmt, ##arg)
@@ -51,6 +48,7 @@ GHashTable *vendor_map;
 GHashTable *alias_map;
 http_t *global_cups_connection;
 gboolean enable_debug = FALSE;
+GKeyFile *config;
 
 static void log_it (gboolean debug, const char *fmt, ...)
 {
@@ -62,6 +60,33 @@ static void log_it (gboolean debug, const char *fmt, ...)
     if (enable_debug && debug)
         g_vfprintf (log_file, fmt, args);
     va_end (args);
+}
+
+/* 
+ * Get a value from our config file.  The returned value must be freed by the caller.
+ */
+static gboolean get_config_value (const char *group, const char *key, char **value)
+{
+    GError *error = NULL;
+    
+    if (config == NULL) {
+        config = g_key_file_new ();
+
+        if (!g_key_file_load_from_file (config, CONFIGFILE, G_KEY_FILE_NONE, &error)) {
+            err ("Error loading config file: %s\n", error->message);
+            g_error_free (error);
+            return FALSE;
+        }
+    }
+
+    *value = g_key_file_get_value (config, group, key, &error);
+    if (*value == NULL) {
+        err ("Error loading config file: %s\n", error->message);
+        g_error_free (error);
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 static void free_printer_info (gpointer data, gpointer user_data)
@@ -735,7 +760,7 @@ static gboolean get_cups_printers (GSList **list)
 static gboolean add_print_queue (PrinterInfo *pi, const gchar *ppd_file, const gchar *printer_name)
 {
     ipp_t *request, *response;
-    const gchar *policy;
+    gchar *policy = NULL;
     gboolean ret = FALSE;
 	gchar local_uri [HTTP_MAX_URI + 1];
     
@@ -754,7 +779,7 @@ static gboolean add_print_queue (PrinterInfo *pi, const gchar *ppd_file, const g
 	ippAddInteger(request, IPP_TAG_PRINTER, IPP_TAG_ENUM, "printer-state",
                   IPP_PRINTER_IDLE);
 
-    policy = g_getenv ("CUPS_AUTOCONFIG_POLICY");
+    get_config_value ("CUPS", "DefaultCUPSPolicy", &policy);
     if (policy && strcmp (policy, "")) {
         ippAddString (request, IPP_TAG_PRINTER, IPP_TAG_NAME,
                       "printer-op-policy", NULL, g_strdup (policy));
@@ -769,6 +794,7 @@ static gboolean add_print_queue (PrinterInfo *pi, const gchar *ppd_file, const g
     ret = TRUE;
 
 done:
+    g_free (policy);
     ippDelete (response);
 	return ret;
 }
@@ -809,14 +835,15 @@ done:
  */
 static gboolean printer_added (void)
 {
-    const gchar *enabled = NULL;
+    gchar *enabled = NULL;
     GSList *detected = NULL, *configured = NULL, *d = NULL, *c = NULL;
     PrinterInfo *new_printer = NULL, *old_printer = NULL;
     gboolean ret = FALSE;
     
-    enabled = g_getenv ("CUPS_AUTOCONFIG_ENABLE");
+    get_config_value ("CUPS", "ConfigureNewPrinters", &enabled);
     if (!enabled || strncmp ("yes", enabled, 3)) {
         g_print ("skipping, CUPS_AUTOCONFIG_ENABLE is not 'yes' it's '%s'\n", enabled);
+        g_free (enabled);
         return TRUE;
     }
 
@@ -882,6 +909,7 @@ static gboolean printer_added (void)
     ret = TRUE;
 
 done:
+    g_free (enabled);
     g_slist_foreach (detected, free_printer_info, NULL);
     g_slist_free (detected);
     g_slist_foreach (configured, free_printer_info, NULL);
@@ -896,13 +924,14 @@ done:
  */
 static gboolean printer_removed (void)
 {
-    const gchar *enabled;
+    gchar *enabled;
     GSList *detected = NULL, *configured = NULL, *c = NULL;
     gboolean ret = TRUE;
     
-    enabled = g_getenv ("CUPS_AUTOCONFIG_DISABLE");
+    get_config_value ("CUPS", "DisablePrintersOnRemoval", &enabled);
     if (!enabled || strncmp ("yes", enabled, 3)) {
         g_print ("skipping, CUPS_AUTOCONFIG_DISABLE is not 'yes'\n");
+        g_free (enabled);
         return TRUE;
     }
     
@@ -940,6 +969,7 @@ static gboolean printer_removed (void)
         }
     }
 
+    g_free (enabled);
     g_slist_foreach (detected, free_printer_info, NULL);
     g_slist_free (detected);
     g_slist_foreach (configured, free_printer_info, NULL);
@@ -954,6 +984,7 @@ int main (int argc, char *argv[])
 {
     GOptionContext *ctx;
     GError *err = NULL;
+    gchar *debug = NULL;
     gboolean add_cmd = FALSE, remove_cmd = FALSE;
     gboolean ret = FALSE;
 
@@ -983,7 +1014,8 @@ int main (int argc, char *argv[])
         goto done;
     }
 
-    if (g_getenv ("CUPS_AUTO_CONFIG_DEBUG"))
+    if (get_config_value ("CUPS", "Debug", &debug) &&
+        debug && !strncmp (debug, "yes", 3))
         enable_debug = TRUE;
 
     if (!cups_connect ()) {
@@ -1008,8 +1040,10 @@ int main (int argc, char *argv[])
     }
 
 done:
+    g_free (debug);
     cups_disconnect ();
     g_option_context_free (ctx);
+    g_key_file_free (config);
     fclose (log_file);
     return ret;
 }

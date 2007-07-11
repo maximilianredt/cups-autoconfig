@@ -1,8 +1,0 @@
-#!/bin/sh
-
-if test -f @SYSCONFDIR@/sysconfig/printerconfig; then
-    . @SYSCONFDIR@/sysconfig/printerconfig
-    export CUPS_AUTOCONFIG_ENABLE CUPS_AUTOCONFIG_DISABLE CUPS_AUTOCONFIG_DEBUG CUPS_AUTOCONFIG_POLICY
-fi
-
-@LIBDIR@/cups-autoconfig/cups-autoconfig $@

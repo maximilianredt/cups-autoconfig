@@ -42,10 +42,9 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
-%doc %{_libdir}/cups-autoconfig
+%dir %{_libdir}/cups-autoconfig
 %{_libdir}/cups-autoconfig/cups-autoconfig
-%{_libdir}/hal/scripts/hal-cups-autoconfig
-%{_sysconfdir}/sysconfig/printerconfig
+%config %{_sysconfdir}/cups-autoconfig.conf
 %{_datadir}/hal/fdi/policy/10osvendor/10-cups-autoconfig.fdi
 %{_datadir}/locale/en_US/LC_MESSAGES/cups-autoconfig.mo
 
