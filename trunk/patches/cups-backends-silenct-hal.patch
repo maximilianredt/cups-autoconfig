@@ -1,0 +1,30 @@
+diff -ur /usr/src/packages/BUILD/cups-backends-1.0/hal.c ./hal.c
+--- /usr/src/packages/BUILD/cups-backends-1.0/hal.c	2005-07-26 05:50:29.000000000 -0400
++++ ./hal.c	2007-07-12 15:39:37.000000000 -0400
+@@ -75,11 +75,14 @@
+ static void
+ list_devices (void)
+ {
+-	LibHalContext *hal_ctx;
+-	char **printers;
+-	int i, n;
++	//LibHalContext *hal_ctx;
++	//char **printers;
++	//int i, n;
+ 	
+-	if (!(hal_ctx = get_hal_ctx ()))
++	printf("direct hal \"Unknown\" \"Hal printing backend\"\n"); 
++
++#if 0
++    if (!(hal_ctx = get_hal_ctx ()))
+ 		return;
+ 	
+ 	printers = libhal_find_device_by_capability (hal_ctx, "printer", &n, NULL);
+@@ -126,6 +129,7 @@
+ 	
+ 	libhal_ctx_shutdown (hal_ctx, NULL);
+ 	libhal_ctx_free (hal_ctx);
++#endif
+ }
+ 
+ /*

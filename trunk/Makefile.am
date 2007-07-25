@@ -18,4 +18,4 @@ rpm: dist
 	--define "_rpmdir $(WORKDIR)/rpm/RPMS" -ba cups-autoconfig.spec
 
 EXTRA_DIST = intltool-extract.in intltool-merge.in intltool-update.in 10-cups-autoconfig.fdi cups-autoconfig.conf as-ac-expand.m4
-CLEANFILES = intltool-extract intltool-merge intltool-update 10-cups-autoconfig.fdi
+CLEANFILES = intltool-extract intltool-merge intltool-update
