@@ -1,3 +1,21 @@
+2007-07-25  Chris Rivera  <crivera@novell.com>
+
+	* configure.in: Add checks for HAL.
+	* src/cups-autoconfig.c:
+
+	Lots of cleanup.
+	
+	Use IEEE 1284 ids if possible.
+
+	Add support for using preferred backends if possible (hp, epson, etc),
+	
+	Add support for	migrating existing HAL backend printers to the usb
+	backend.
+
+	Cleanup the config file handling.
+
+	Improve debugging.
+
 2007-07-11  Chris Rivera  <crivera@novell.com>
 
 	* Makefile.am:

@@ -49,6 +49,13 @@ PKG_CHECK_MODULES(DBUS, dbus-1)
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
+dnl
+dnl Check for HAL 
+dnl
+PKG_CHECK_MODULES(HAL, hal)
+AC_SUBST(HAL_CFLAGS)
+AC_SUBST(HAL_LIBS)
+
 AS_AC_EXPAND(PREFIX, $prefix)
 AC_SUBST(PREFIX)
 
@@ -60,6 +67,9 @@ AC_SUBST(DATADIR)
 
 AS_AC_EXPAND(LIBDIR, $libdir)
 AC_SUBST(LIBDIR)
+
+AS_AC_EXPAND(LOCALSTATEDIR, $localstatedir)
+AC_SUBST(LOCALSTATEDIR)
 
 AC_OUTPUT([
 Makefile
@@ -73,4 +83,5 @@ echo "prefix:                     $prefix"
 echo "sysconfdir:                 $sysconfdir"
 echo "datadir:                    $datadir"
 echo "libdir:                     $libdir"
+echo "localstatedir:              $localstatedir"
 echo
