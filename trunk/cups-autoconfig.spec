@@ -36,6 +36,7 @@ export CFLAGS="$RPM_OPT_FLAGS"
 
 %install
 make install DESTDIR=${RPM_BUILD_ROOT}
+#ln -sf $RPM_BUILD_ROOT/%{_libdir}/cups-autoconfig/cups-autoconfig $RPM_BUILD_ROOT/%{_libdir}/hal/hal-cups-autoconfig
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -44,6 +45,7 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root)
 %dir %{_libdir}/cups-autoconfig
 %{_libdir}/cups-autoconfig/cups-autoconfig
+%{_libdir}/hal/hal-cups-autoconfig
 %config %{_sysconfdir}/cups-autoconfig.conf
 %{_datadir}/hal/fdi/policy/10osvendor/10-cups-autoconfig.fdi
 %{_datadir}/locale/en_US/LC_MESSAGES/cups-autoconfig.mo

@@ -3,8 +3,8 @@
 <deviceinfo version="0.2">
   <device>
     <match key="info.capabilities" contains="printer">
-      <append key="info.callouts.add" type="strlist">@LIBDIR@/cups-autoconfig/cups-autoconfig --add</append>
-      <append key="info.callouts.remove" type="strlist">@LIBDIR@/cups-autoconfig/cups-autoconfig --remove</append>
+      <append key="info.callouts.add" type="strlist">@LIBDIR@/hal/hal-cups-autoconfig --add --migrate-hal-printers</append>
+      <append key="info.callouts.remove" type="strlist">@LIBDIR@/hal/hal-cups-autoconfig --disable</append>
     </match>
   </device>
 </deviceinfo>
