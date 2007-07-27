@@ -10,19 +10,19 @@ The purpose of this project is to improve the desktop printing experience.
 
 This is a smally utility that runs, via a HAL callout, whenever a local printer is added or removed.  It gathers information via HAL, CUPS, and the CUPS backends to determine the appropriate action.
 
-Settings for this utility are controlled via /etc/sysconfig/printerconfig.  It contains the following values:
+Settings for this utility are controlled via /etc/cups-autoconfig.conf.  It contains the following values:
 
-CUPS_AUTOCONFIG_ENABLE - Controls local printers being auto-configured on addition.
+ConfigureNewPrinters - Controls local printers being auto-configured on addition.
 
-CUPS_AUTOCONFIG_DISABLE - Controls local printers being disabled on removal.
+DisablePrintersOnRemoval - Controls local printers being disabled on removal.
 
-CUPS_AUTOCONFIG_DEBUG - Controls debugging output /var/log/cups-autoconfig.log.
+Debug - Controls debugging output /var/log/cups-autoconfig.log.
 
-CUPS_AUTOCONFIG_PRINTER_POLICY: The name of the CUPS policy to assign to newly configured printers.
+DefaultCUPSPolicy - The name of the CUPS policy to assign to newly configured printers.
 
-When a local printer is added to the system cups-autoconfig determines if the printer is already configured.  If the printer is configured then the printer is enabled.  If the printer is not configured then cups-autoconfig attempts to select the appropriate driver for the new printer and, if successful, creates a new print queue.  If the CUPS_AUTOCONFIG_PRINTER_POLICY variable is set it will assign the named policy to the new printer.
+When a local printer is added to the system cups-autoconfig determines if the printer is already configured.  If the printer is configured then the printer is enabled.  If the printer is not configured then cups-autoconfig attempts to select the appropriate driver for the new printer and, if successful, creates a new print queue.  Newly configured printers will be assigned the DefaultCUPSPolicy.
 
-When a local printer is removed the CUPS_AUTOCONFIG_DISABLE variable is consulted.  If the variable is set to "yes" then the printer is disabled.
+When a local printer is removed the DisablePrintersOnRemoval variable is consulted.  If the variable is set to "yes" then the printer is disabled.
 
 *DBUS Signals* 
 
@@ -30,7 +30,7 @@ Results of cups-autoconfig operations are reported via DBUS messages on the Syst
 
 = Removal of the HAL backend from cups-backends =
 
-Unfortunately, the HAL CUPS backend needs to be removed.  Ideally, HAL would be used for all hardware detection, but using the HAL backend complicates the process without buying us anything.  The usb backend is what is supported upstream and has to be supported in openSUSE.  Both backends detect the same printers and require complicated uri mapping schemes to avoid ambiguities.  This is more work that it's worth.
+Ideally, HAL would be used for all hardware detection, but using the HAL backend complicates the process without buying us anything.  The usb backend is what is supported upstream and has to be supported in openSUSE.  Both backends detect the same printers and require complicated uri mapping schemes to avoid ambiguities.  This is more work that it's worth.  For 10.3 the hal backend will be silenced.  It won't report any detected printers, but existing hal backend printers will still work.
 
 = CUPS Changes =
 
@@ -72,12 +72,11 @@ A small change was made to gnome-cups-add to make the add_printer operation asyn
 
 = gnome-volume-manager Changes =
 
-A small patch was added to gnome-volume-manager to make it aware of the previously mentioned messages.  If it receives a PrinterInfo message then it uses libnotify to display a message to user letting them know that a new printer has been configured.  If it receives a PrinterConfigRequired message then it will run it's printer configuration tool so the user can take manual action.
+A small patch was added to gnome-volume-manager to make it aware of the previously mentioned DBus messages.  If it receives a PrinterInfo message then it uses libnotify to display a message to user letting them know that a new printer has been configured.  If it receives a PrinterConfigRequired message then it will run it's printer configuration tool so the user can take manual action.
 
 = TODO =
 
 Lots and lots of testing.
-
 
 
 
