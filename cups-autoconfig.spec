@@ -13,11 +13,11 @@ Version:        0.1.0
 Release:        1
 Group:          System/Base
 License:        GNU General Public License (GPL) - all versions
-Summary:        A Utility to Auto-configure printers. 
+Summary:        A Utility to Auto-configure Printers. 
 Autoreqprov:    on
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 Requires:       cups >= 1.2 glib2 >= 2.8 hal dbus-1
-BuildRequires:  glib2-devel >= 2.8 dbus-1-devel intltool hal cups-devel
+BuildRequires:  glib2-devel >= 2.8 dbus-1-devel intltool hal cups-devel hal-devel
 Source:         %{name}-%{version}.tar.gz
 
 %description
@@ -36,7 +36,6 @@ export CFLAGS="$RPM_OPT_FLAGS"
 
 %install
 make install DESTDIR=${RPM_BUILD_ROOT}
-#ln -sf $RPM_BUILD_ROOT/%{_libdir}/cups-autoconfig/cups-autoconfig $RPM_BUILD_ROOT/%{_libdir}/hal/hal-cups-autoconfig
 
 %clean
 rm -rf $RPM_BUILD_ROOT
