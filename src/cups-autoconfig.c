@@ -1,3 +1,23 @@
+/*
+ * Copyright (c) 2007 Novell, Inc. All Rights Reserved.
+ *
+ * This program is free software; you can redistribute it and/or 
+ * modify it under the terms of version 2 of the GNU General Public License
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, contact Novell, Inc.
+ *
+ * To contact Novell about this file by physical or electronic mail, 
+ * you may find current contact information at www.novell.com.
+ *
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -49,7 +69,6 @@ typedef struct _ConfigInfo {
     gchar *default_policy;
     gboolean add;
     gboolean remove;
-    gboolean migrate;
     gboolean debug;
 } ConfigInfo;
 
@@ -59,16 +78,19 @@ GHashTable *alias_map;
 GHashTable *vendor_map;
 http_t *global_cups_connection;
 gboolean enable_debug = FALSE;
+LibHalContext *hal_ctx;
 
 static void log_it (gboolean debug, const char *fmt, ...)
 {
     va_list args;
 
     va_start (args, fmt);
+    
     g_vfprintf (stderr, fmt, args);
     g_vfprintf (log_file, fmt, args);
     if (enable_debug && debug)
         g_vfprintf (log_file, fmt, args);
+    
     va_end (args);
 }
 
@@ -93,10 +115,6 @@ static gboolean load_config (void)
 
     value = g_key_file_get_value (kf, "CUPS", "DisablePrintersOnRemoval", NULL);
     config->remove = value && (!strcmp (value, "yes") || !strcmp (value, "y")) ? TRUE : FALSE; 
-    g_free (value);
-    
-    value = g_key_file_get_value (kf, "CUPS", "MigrateHalPrinters", NULL);
-    config->migrate = value && (!strcmp (value, "yes") || !strcmp (value, "y")) ? TRUE : FALSE; 
     g_free (value);
     
     value = g_key_file_get_value (kf, "CUPS", "Debug", NULL);
@@ -145,7 +163,6 @@ static gboolean open_log (void)
     return TRUE;
 }
 
-//TODO: move this to an xml file
 /*
  * Load our known vendor string mappings.
  */
@@ -339,7 +356,7 @@ static gchar *generate_printer_name (PrinterInfo *pi, GSList *curr)
 }
 
 /*
- * A crappy check to make sure a printer uri is local.
+ * A crappy check to see if a printer uri is local.
  */
 static gboolean uri_is_local (const gchar *uri)
 {
@@ -374,7 +391,6 @@ static gchar *model_from_string (const gchar *make_str, const gchar *model_str)
     /* strip off spaces */
     mdl = g_strstrip (mdl);
     
-    //FIXME: we need to check for the make at the beginning of the string only
     /* look for the make or any of its aliases */
     ss_len = strlen (make);
     ss = strstr (mdl, make);
@@ -433,6 +449,7 @@ static void get_1284_fields (const gchar *id, gchar **vendor, gchar **model, gch
 
     if (model) {
         gchar *s, *e;
+        
         if ((s = strstr (uid, "MDL:")))
             s += 4;
         else if ((s = strstr (uid, "MODEL:")))
@@ -497,23 +514,17 @@ done:
 /* 
  * See if the given printer (pi) matches a HAL printer.  If a hal_udi isn't specified
  * Then we assume we are being called via a HAL callout and we use the environment 
- * exposed to the HAL callouts. 
+ * variables exposed to the HAL callouts. 
  */
-static gboolean printer_matches_hal_properties (PrinterInfo *pi, LibHalContext *ctx, gchar *hal_udi)
+static gboolean printer_matches_hal_properties (PrinterInfo *pi, gchar *hal_udi)
 {
     gchar *make = NULL, *model = NULL, *serial = NULL;
     gchar *mm = NULL, *um = NULL, *mdl = NULL;
     gboolean ret = FALSE;
 
-    if (ctx && hal_udi) {
-        make = libhal_device_get_property_string (ctx, hal_udi, "printer.vendor", NULL);
-        model = libhal_device_get_property_string (ctx, hal_udi, "printer.product", NULL);
-        serial = libhal_device_get_property_string (ctx, hal_udi, "printer.serial", NULL);
-    } else {
-        make = g_strdup (g_getenv ("HAL_PROP_PRINTER_VENDOR"));
-        model = g_strdup (g_getenv ("HAL_PROP_PRINTER_PRODUCT"));
-        serial = g_strdup (g_getenv ("HAL_PROP_PRINTER_SERIAL"));
-    }
+    make = libhal_device_get_property_string (hal_ctx, hal_udi, "printer.vendor", NULL);
+    model = libhal_device_get_property_string (hal_ctx, hal_udi, "printer.product", NULL);
+    serial = libhal_device_get_property_string (hal_ctx, hal_udi, "printer.serial", NULL);
 
     dbg ("HAL Printer properties make='%s' model='%s' serial='%s'\n"
          "Printer properties uri='%s' m_and_m='%s'\n", 
@@ -564,15 +575,9 @@ matched:
 
 done:
     g_free (mdl);
-    if (ctx) {
-        libhal_free_string (make);
-        libhal_free_string (model);
-        libhal_free_string (serial);
-    } else {
-        g_free (make);
-        g_free (model);
-        g_free (serial);
-    }
+    libhal_free_string (make);
+    libhal_free_string (model);
+    libhal_free_string (serial);
     return ret;
 }
 
@@ -588,11 +593,7 @@ static gchar *get_best_ppd (PrinterInfo *pi)
     PPDScore ppd_score = PPD_NO_MATCH;
 
     /* get the list of ppds for pi's vendor */
-    dbg ("Requesting ppds for vendor '%s'\n", pi->make);
     request = ippNewRequest (CUPS_GET_PPDS);
-    ippAddString (request, IPP_TAG_OPERATION, IPP_TAG_TEXT,
-              "ppd-make", NULL, pi->make);
-
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
         err ("Failed to get ppds for '%s'\n", pi->make);
@@ -600,8 +601,8 @@ static gchar *get_best_ppd (PrinterInfo *pi)
     } 
 
     /* 
-     * Look for ppds that match our model with preference towards 
-     * ppds located in the manufacturer-PPDs directory.
+     * Look for ppds that match our model with priority: 
+     * manufacturer-PPD > recommended > simple match
      */
     for (attr = response->attrs; attr; attr = attr ? attr->next : NULL) {
         gchar *ppd_model = NULL;
@@ -948,7 +949,6 @@ static gboolean add_print_queue (const gchar *uri, const gchar *ppd_file, const 
 {
     ipp_t *request, *response;
     gboolean ret = FALSE;
-    cups_lang_t *language;
 	gchar local_uri [HTTP_MAX_URI + 1];
   
     dbg ("adding queue with uri='%s' ppd='%s' name='%s'\n",
@@ -957,13 +957,6 @@ static gboolean add_print_queue (const gchar *uri, const gchar *ppd_file, const 
 		        "ipp://localhost/printers/%s", printer_name);
     
     request = ippNewRequest (CUPS_ADD_MODIFY_PRINTER);
-    
-    language = cupsLangDefault();
-    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_CHARSET,
-                 "attributes-charset", NULL, "utf-8");
-    ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_LANGUAGE,
-                 "attributes-natural-language", NULL, language->language);
- 
 	ippAddString (request, IPP_TAG_OPERATION, IPP_TAG_URI,
 		          "printer-uri", NULL, local_uri);
 	ippAddString (request,	IPP_TAG_PRINTER, IPP_TAG_NAME,
@@ -1007,9 +1000,10 @@ static gboolean remove_print_queue (const char *printer_name)
 	ippAddString (request, IPP_TAG_OPERATION, IPP_TAG_URI,
 		          "printer-uri", NULL, local_uri);
 
+    dbg ("attempting to remove '%s'\n", local_uri);
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to change printer state\n");
+        err ("Failed to remove printer\n");
         goto done;
     }
 
@@ -1083,7 +1077,7 @@ static gchar *get_1284_id_from_device (const char *device)
  * Find the corresponding usb backend printer for the given hal
  * printer.  The returned string needs to be freed by the caller.
  */
-static gchar *hal_to_usb_uri (PrinterInfo *hp, LibHalContext *ctx)
+static gchar *hal_to_usb_uri (PrinterInfo *hp)
 {
     GSList *detected = NULL, *d = NULL;
     gchar *ret = NULL;
@@ -1099,8 +1093,8 @@ static gchar *hal_to_usb_uri (PrinterInfo *hp, LibHalContext *ctx)
         
         /* use IEEE 1284 ids to match if we can */
         if (pi->device_id) {
-            gchar *dev_file = libhal_device_get_property_string (ctx, hp->uri + 6,
-                                                                  "linux.device_file", NULL);
+            gchar *dev_file = libhal_device_get_property_string (hal_ctx, hp->uri + 6,
+                                                                 "linux.device_file", NULL);
             if (dev_file) {
                 gchar *ieee_id = get_1284_id_from_device (dev_file);
                 g_free (dev_file);
@@ -1125,7 +1119,7 @@ static gchar *hal_to_usb_uri (PrinterInfo *hp, LibHalContext *ctx)
 
         /* no 1284 id so we have to use string matching */
         dbg ("no 1284 ids, using string matching\n");
-        if (printer_matches_hal_properties (pi, ctx, hp->uri + 6)) {
+        if (printer_matches_hal_properties (pi, hp->uri + 6)) {
             dbg ("strings matched hal uri '%s'\n", hp->uri);
             ret = g_strdup (pi->uri);
             break;
@@ -1163,7 +1157,7 @@ static gchar *find_matching_ppd (const gchar *ppd_make_and_model)
     }
  
     for (attr = response->attrs; attr; attr = attr ? attr->next : NULL) {
-        const gchar *name = NULL, *make_and_model = NULL;
+        gchar *name = NULL, *make_and_model = NULL;
         
         while (attr && attr->group_tag != IPP_TAG_PRINTER)
             attr = attr->next;
@@ -1176,9 +1170,13 @@ static gchar *find_matching_ppd (const gchar *ppd_make_and_model)
                 name = attr->values[0].string.text;
             } else if (!strcmp (attr->name, "ppd-make-and-model") && attr->value_tag == IPP_TAG_TEXT) {
                 make_and_model = attr->values[0].string.text;
+                p = strstr (make_and_model, " (recommended)");
+                if (p)
+                    *p = '\0';
             } 
         }
 
+        dbg ("find_matching_ppd: comparing '%s' and '%s'\n", mm, make_and_model);
         if (!g_ascii_strcasecmp (mm, make_and_model)) {
             ppd = g_strdup (name);
             break;
@@ -1197,28 +1195,12 @@ done:
 static gboolean migrate_hal_printers (void)
 {
     GSList *configured = NULL, *c = NULL;
-    LibHalContext *ctx = NULL;
-    DBusError error;
     gboolean ret = FALSE;
 
     get_cups_printers (&configured);
     if (!configured)
         return TRUE;
     
-    if (!(ctx = libhal_ctx_new ())) {
-        err ("Unable to create HAL context\n");
-        goto done_nofree;
-    }
-	
-    dbus_error_init (&error);
-    libhal_ctx_set_dbus_connection (ctx, dbus_bus_get (DBUS_BUS_SYSTEM, &error));
-	
-    if (!libhal_ctx_init (ctx, &error)) {
-        err ("Unable to init HAL context: %s\n", error.message);
-        dbus_error_free (&error);
-        goto done;
-    }
-
     for (c = configured; c; c = c->next) {
         gchar *ppd_file, *usb_uri;
         PrinterInfo *tmp = c->data;
@@ -1226,11 +1208,11 @@ static gboolean migrate_hal_printers (void)
         if (strncmp (tmp->uri, "hal://", 6))
             continue;
 
-        usb_uri = hal_to_usb_uri (tmp, ctx);
+        usb_uri = hal_to_usb_uri (tmp);
         if (!usb_uri)
             continue;
 
-        dbg ("hal uri '%s' matched usb uri '%s'\n", tmp->uri, usb_uri);
+        dbg ("hal uri '%s' matched uri '%s'\n", tmp->uri, usb_uri);
         ppd_file = find_matching_ppd (tmp->make_and_model);
         if (!ppd_file) {
             err ("Failed to find matching ppd for '%s' '%s'\n", tmp->uri, tmp->make_and_model);
@@ -1253,9 +1235,6 @@ static gboolean migrate_hal_printers (void)
     ret = TRUE;
 
 done:
-    libhal_ctx_shutdown (ctx, NULL);
-    libhal_ctx_free (ctx);
-done_nofree: 
     g_slist_foreach (configured, free_printer_info, NULL);
     g_slist_free (configured);
     return ret;
@@ -1265,76 +1244,95 @@ done_nofree:
  * Get printer information from HAL, cups, and the cups backends
  * and add the new printer, if necessary.
  */
-static gboolean printer_added (void)
+static gboolean add_printers (void)
 {
+    const gchar *udi = g_getenv ("HAL_PROP_INFO_UDI");
+    char **printers;
     GSList *detected = NULL, *configured = NULL, *d = NULL, *c = NULL;
-    PrinterInfo *new_printer = NULL, *old_printer = NULL;
     gboolean ret = FALSE;
+    int i, n;
     
     if (!config->add) {
         g_print ("skipping, CUPS_AUTOCONFIG_ENABLE is not yes\n");
         return TRUE;
     }
 
+    get_cups_printers (&configured);
     get_detected_printers (&detected);
     if (!detected) {
-        err ("Failed to detect new printers\n");
+        err ("Failed to detect backend printers\n");
         goto done;
     }
 
-    /* find the printer that HAL says was just added */
-    dbg ("Looking for new printer...\n");
-    for (d = detected; d; d = d->next) {
-        if (printer_matches_hal_properties (d->data, NULL, NULL)) {
-            new_printer = d->data;
-            break;
-        } 
-    }
-    
-    if (!new_printer) {
-        err ("Failed to find a printer that matches HAL properties\n");
-        goto done;
-    }
-
-    get_cups_printers (&configured);
-    
-    /* see if cups already knows about this printer */
-    for (c = configured; c; c = c->next) {
-        PrinterInfo *tp = c->data;
-        if (!strcmp (tp->uri, new_printer->uri)) {
-            old_printer = tp;
-            break;
-        }
-    }
-    
-    if (!old_printer) {
-        gchar *ppd = get_best_ppd (new_printer);
-        if (ppd) {
-            gchar *name;
-
-            dbg ("selected ppd file is '%s'\n", ppd);
-            name = generate_printer_name (new_printer, configured);
-            if (add_print_queue (new_printer->uri, ppd, name)) {
-                gchar *msg = g_strdup_printf (_("%s has been configured."), name);
-                send_notification (_("New Printer"), msg);
-                dbg (msg);
-                g_free (msg);
-            } else {
-                err ("Failed to add print queue\n");
-                g_free (ppd);
-                g_free (name);
-                goto done;
-            }
-
-            g_free (ppd);
-            g_free (name);
-        } else {
-            err ("Failed to find PPD file for printer\n");
-            goto done;
-        }
+    if (!udi) {
+        printers = libhal_find_device_by_capability (hal_ctx, "printer", &n, NULL);
     } else {
-        dbg ("Enabling old printer '%s'\n", old_printer->name);
-        set_printer_status (old_printer->name, TRUE);
+        printers = g_malloc (sizeof (char *));
+        printers[0] = g_strdup (udi); 
+        n = 1;
+    }
+   
+    for (i = 0; i < n; i++) {
+        PrinterInfo *new_printer = NULL, *old_printer = NULL;
+        gchar *ppd, *name;
+
+        /* see if the detected printer matches our hal printer */
+        for (d = detected; d; d = d->next) {
+            if (printer_matches_hal_properties (d->data, printers[i])) {
+                new_printer = d->data;
+                break;
+            } 
+        }
+       
+        if (!new_printer) {
+            err ("Failed to find a printer that matches HAL properties\n");
+            continue;
+        }
+
+        /* see if the printer is configured already */
+        for (c = configured; c; c = c->next) {
+            PrinterInfo *tp = c->data;
+            if (!strcmp (tp->uri, new_printer->uri)) {
+                old_printer = tp;
+                break;
+            }
+        }
+
+        /* make sure this printer is enabled */
+        if (old_printer) {
+            dbg ("Enabling old printer '%s'\n", old_printer->name);
+            set_printer_status (old_printer->name, TRUE);
+            continue;
+        }
+       
+        /* try and find a ppd for the new printer */
+        ppd = get_best_ppd (new_printer);
+        if (!ppd) {
+            err ("Failed to find PPD file for printer\n");
+            continue;
+        }
+
+        dbg ("selected ppd file is '%s'\n", ppd);
+        name = generate_printer_name (new_printer, configured);
+        if (add_print_queue (new_printer->uri, ppd, name)) {
+            gchar *msg = g_strdup_printf (_("%s has been configured."), name);
+            send_notification (_("New Printer"), msg);
+            dbg (msg);
+            dbg ("\n");
+            g_free (msg);
+        } else {
+            err ("Failed to add print queue\n");
+        }
+
+        g_free (ppd);
+        g_free (name);
+    }
+
+    if (!udi) {
+        libhal_free_string_array (printers);
+    } else {
+        g_free (printers[0]);
+        g_free (printers);
     }
 
     ret = TRUE;
@@ -1352,7 +1350,7 @@ done:
  * cups configured printers and disable the print queues
  * for the printers that aren't present.
  */
-static gboolean printer_removed (void)
+static gboolean disable_printers (void)
 {
     GSList *detected = NULL, *configured = NULL, *c = NULL;
     gboolean ret = TRUE;
@@ -1386,13 +1384,14 @@ static gboolean printer_removed (void)
             }
         }
         
-        if (!found) {
-            ret = set_printer_status (pi->name, FALSE);
-            if (ret) {
-                gchar *m = g_strdup_printf (_("%s has been disabled."), pi->name);
-                send_notification (_("Printer Disabled"), m);
-                g_free (m);
-            }
+        if (found)
+            continue;
+
+        ret = set_printer_status (pi->name, FALSE);
+        if (ret) {
+            gchar *m = g_strdup_printf (_("%s has been disabled."), pi->name);
+            send_notification (_("Printer Disabled"), m);
+            g_free (m);
         }
     }
 
@@ -1408,20 +1407,21 @@ static gboolean printer_removed (void)
  */
 int main (int argc, char *argv[]) 
 {
-    GOptionContext *ctx;
+    GOptionContext *ctx = NULL;
     GError *err = NULL;
     gchar *debug = NULL;
-    gboolean add_cmd = FALSE, remove_cmd = FALSE;
+    DBusError error;
+    gboolean add_cmd = FALSE, disable_cmd = FALSE;
     gboolean ret = FALSE, is_add_enabled = FALSE, migrate = FALSE;
 
     GOptionEntry entries[] = {
         { "add", 0, 0, G_OPTION_ARG_NONE, &add_cmd, "Add new printers", NULL },
-        { "remove", 0, 0, G_OPTION_ARG_NONE, &remove_cmd, 
+        { "disable", 0, 0, G_OPTION_ARG_NONE, &disable_cmd, 
           "Disable printers that aren't connected", NULL },
         { "debug", 0, 0, G_OPTION_ARG_NONE, &enable_debug, "Enable debugging output", NULL },
-        { "migrate-hal-printers", 0, 0, G_OPTION_ARG_NONE, &migrate, "", NULL },
+        { "migrate-hal-printers", 0, 0, G_OPTION_ARG_NONE, &migrate, "Migrate HAL backend printers", NULL },
         { "is-add-enabled", 0, 0, G_OPTION_ARG_NONE, &is_add_enabled,
-          "See if our configure option is set", NULL },
+          "Check if the ConfigureNewPrinters option is set", NULL },
         { NULL, 0, 0, 0, NULL, NULL, NULL }
     };
 
@@ -1429,22 +1429,22 @@ int main (int argc, char *argv[])
     bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
     textdomain (GETTEXT_PACKAGE);
 
-    ctx = g_option_context_new ("command_flag");
+    if (!open_log ())
+        goto done;
+    
+    ctx = g_option_context_new ("");
     g_option_context_add_main_entries (ctx, entries, NULL);
     if (!g_option_context_parse (ctx, &argc, &argv, &err)) {
-        g_printerr ("parsing failed: %s\n", err->message);
+        err ("parsing failed: %s\n", err->message);
         g_error_free (err);
         goto done;
     }
 
     if (geteuid () != 0) {
-        g_printerr ("You must be root to run %s\n", argv[0]);
+        err ("You must be root to run %s\n", argv[0]);
         goto done;
     }
 
-    if (!open_log ())
-        goto done;
-    
     if (!load_config ()) {
         err ("Failed to load config file\n");
         goto done;
@@ -1452,9 +1452,6 @@ int main (int argc, char *argv[])
     
     load_vendor_mappings ();
     
-    if (migrate)
-        config->migrate = TRUE;
-
     if (config->debug)
         enable_debug = TRUE;
     
@@ -1463,22 +1460,36 @@ int main (int argc, char *argv[])
         goto done;
     }
 
-    if (config->migrate && !migrate_hal_printers ())
+    if (!(hal_ctx = libhal_ctx_new ())) {
+        err ("Unable to create HAL context\n");
+        goto done;
+    }
+	
+    dbus_error_init (&error);
+    libhal_ctx_set_dbus_connection (hal_ctx, dbus_bus_get (DBUS_BUS_SYSTEM, &error));
+	
+    if (!libhal_ctx_init (hal_ctx, &error)) {
+        err ("Unable to init HAL context: %s\n", error.message);
+        dbus_error_free (&error);
+        goto done;
+    }
+
+    if (migrate && !migrate_hal_printers ())
         err ("Failed to migrate hal printers\n");
 
     if (add_cmd) {
-        if (printer_added ()) {
+        if (add_printers ()) {
             ret = TRUE;
         } else {
             const gchar *udi = g_getenv ("HAL_PROP_INFO_UDI");
             if (udi && request_manual_configuration (udi))
                 ret = TRUE;
         }
-    } else if (remove_cmd) {
-        ret = printer_removed ();
+    } else if (disable_cmd) {
+        ret = disable_printers ();
     } else if (is_add_enabled) {
         ret = config->add;
-    } else if (config->migrate) {
+    } else if (migrate) {
         /* we're only doing migration */
     } else {
         /* GOption is a piece of shit */
@@ -1490,6 +1501,11 @@ int main (int argc, char *argv[])
     }
 
 done:
+    if (hal_ctx) {
+        libhal_ctx_shutdown (hal_ctx, NULL);
+        libhal_ctx_free (hal_ctx);
+    }
+    
     g_free (debug);
     cups_disconnect ();
     g_option_context_free (ctx);

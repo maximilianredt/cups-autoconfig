@@ -1,3 +1,26 @@
+2007-07-27  Chris Rivera  <crivera@novell.com>
+
+	* src/cups-autoconfig.c:
+
+	Remove the migrate hal printers config option and make it
+	a flag instead.
+
+	Add the ability to autoconfigure all printers instead of
+	just the printer specified by the HAL environment.  If
+	the app is run without the HAL_PROP_INFO_UDI env set then
+	it will attempt to autoconfigure all printers.  If the env
+	is set then it will only configure the printer with that udi.
+
+	More cleanup.
+
+	More debugging output.
+
+	* cups-autoconfig.spec:
+	* src/Makefile.am:
+
+	Create a symlink in libdir/hal/ to point to cups-autoconfig so
+	the hal callout will actually work.
+
 2007-07-25  Chris Rivera  <crivera@novell.com>
 
 	* configure.in: Add checks for HAL.
