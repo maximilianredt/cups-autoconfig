@@ -1,3 +1,15 @@
+2007-07-30  Chris Rivera  <crivera@novell.com>
+
+	* src/cups-autoconfig.c:
+	
+	Set printer.configured and printer.display_name properties
+	on the HAL printer instead of using DBus signals.
+
+	* patches/gnome-volume-manager-printer-notify.patch:
+
+	Update to reflect cups-autoconfig changes.
+	
+
 2007-07-27  Chris Rivera  <crivera@novell.com>
 
 	* src/cups-autoconfig.c:

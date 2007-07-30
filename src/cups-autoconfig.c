@@ -242,79 +242,18 @@ static void cups_disconnect (void)
 }
 
 /*
- * Send a dbus message out on the system bus.
+ * Set the printer.configured property on new printers for policy
+ * applications like gvm.
  */
-static gboolean send_dbus_message (DBusMessage *msg)
+static void set_printer_configured_property (const gchar *udi, const gchar *name)
 {
-    DBusConnection *conn;
-    DBusError error;
+    if (!libhal_device_set_property_bool (hal_ctx, udi,
+                                          "printer.configured", TRUE, NULL))
+        err ("Failed to set printer.configured property for '%s'\n", udi);
 
-    dbus_error_init (&error);
-    conn = dbus_bus_get (DBUS_BUS_SYSTEM, &error);
-    if (!conn) {
-        err ("Failed to connect to dbus: %s\n", error.message);
-        dbus_error_free (&error);
-        dbus_message_unref (msg);
-        return FALSE;
-    }
-
-    if (!dbus_connection_send (conn, msg, NULL)) {
-        err ("Failed to send DBUS message\n");
-        dbus_message_unref (msg);
-        dbus_connection_unref (conn);
-        return FALSE;
-    }
-
-    dbus_connection_flush (conn);
-    dbus_message_unref (msg);
-    dbus_connection_unref (conn);
-    return TRUE;
-}
-
-/*
- * Let the user know that we did something.
- */
-static gboolean send_notification (const gchar *title, const gchar *message)
-{
-    DBusMessage *msg;
-    DBusMessageIter iter;
-
-    msg = dbus_message_new_signal ("/org/cups/CupsAutoconfig",
-                                   "org.cups.CupsAutoconfig",
-                                   "PrinterInfo");
-    if (!msg) {
-        err ("Failed to construct message\n");
-        return FALSE;
-    }
-
-    dbg ("Sending PrinterInfo message: %s - %s\n", title, message);
-    dbus_message_iter_init_append (msg, &iter);
-    dbus_message_iter_append_basic (&iter, DBUS_TYPE_STRING, &title);
-    dbus_message_iter_append_basic (&iter, DBUS_TYPE_STRING, &message);
-    return send_dbus_message (msg); 
-}
-
-/*
- * Send a signal that policy apps can watch for to
- * run their current printer configuration tool.
- */
-static gboolean request_manual_configuration (const gchar *udi)
-{
-    DBusMessage *msg;
-    DBusMessageIter iter;
-
-    msg = dbus_message_new_signal ("/org/cups/CupsAutoconfig",
-                                   "org.cups.CupsAutoconfig",
-                                   "PrinterConfigRequired");
-    if (!msg) {
-        err ("Failed to construct message\n");
-        return FALSE;
-    }
-
-    dbg ("Sending PrinterConfigRequired message with udi '%s'\n", udi);
-    dbus_message_iter_init_append (msg, &iter);
-    dbus_message_iter_append_basic (&iter, DBUS_TYPE_STRING, &udi);
-    return send_dbus_message (msg); 
+    if (!libhal_device_set_property_string (hal_ctx, udi,
+                                            "printer.display_name", name, NULL))
+        err ("Failed to set printer.display_name\n");
 }
 
 /* 
@@ -1315,11 +1254,7 @@ static gboolean add_printers (void)
         dbg ("selected ppd file is '%s'\n", ppd);
         name = generate_printer_name (new_printer, configured);
         if (add_print_queue (new_printer->uri, ppd, name)) {
-            gchar *msg = g_strdup_printf (_("%s has been configured."), name);
-            send_notification (_("New Printer"), msg);
-            dbg (msg);
-            dbg ("\n");
-            g_free (msg);
+            set_printer_configured_property (printers[i], name);
         } else {
             err ("Failed to add print queue\n");
         }
@@ -1387,12 +1322,8 @@ static gboolean disable_printers (void)
         if (found)
             continue;
 
-        ret = set_printer_status (pi->name, FALSE);
-        if (ret) {
-            gchar *m = g_strdup_printf (_("%s has been disabled."), pi->name);
-            send_notification (_("Printer Disabled"), m);
-            g_free (m);
-        }
+        if (!set_printer_status (pi->name, FALSE))
+            ret = FALSE;
     }
 
     g_slist_foreach (detected, free_printer_info, NULL);
@@ -1478,13 +1409,8 @@ int main (int argc, char *argv[])
         err ("Failed to migrate hal printers\n");
 
     if (add_cmd) {
-        if (add_printers ()) {
+        if (add_printers ())
             ret = TRUE;
-        } else {
-            const gchar *udi = g_getenv ("HAL_PROP_INFO_UDI");
-            if (udi && request_manual_configuration (udi))
-                ret = TRUE;
-        }
     } else if (disable_cmd) {
         ret = disable_printers ();
     } else if (is_add_enabled) {
