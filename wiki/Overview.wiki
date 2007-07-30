@@ -24,9 +24,9 @@ When a local printer is added to the system cups-autoconfig determines if the pr
 
 When a local printer is removed the DisablePrintersOnRemoval variable is consulted.  If the variable is set to "yes" then the printer is disabled.
 
-*DBUS Signals* 
+*HAL device properties* 
 
-Results of cups-autoconfig operations are reported via DBUS messages on the System bus.  If a new printer is successfully configured then a PrinterInfo message is sent via the org.cups.CupsAutoconfig interface.  If configuration fails (unable to find a matching driver, adding the queue fails, etc) then a PrinterConfigRequired message is sent using the same interface.  Policy applications running in the user's session should watch for these messages and take appropriate action.  See the gnome-volume-manager section for details.
+If a printer has been successfully configured then cups-autoconfig will add "printer.configured" and "printer.display_name" properties to the HAL printer device.  Policy applications, like gnome-volume-manager, can check for these properties to determine whether they should run their printer configuration tool or display a message saying that the printer has been configured.
 
 = Removal of the HAL backend from cups-backends =
 
@@ -72,12 +72,11 @@ A small change was made to gnome-cups-add to make the add_printer operation asyn
 
 = gnome-volume-manager Changes =
 
-A small patch was added to gnome-volume-manager to make it aware of the previously mentioned DBus messages.  If it receives a PrinterInfo message then it uses libnotify to display a message to user letting them know that a new printer has been configured.  If it receives a PrinterConfigRequired message then it will run it's printer configuration tool so the user can take manual action.
+A small patch was added to gnome-volume-manager to make it aware of the previously mentioned HAL device properties.  When gvm receives a new printer event it will check for the "printer.configured" and "printer.display_name" properties.  If it finds these properties then it will use libnotify to tell the user that their printer has been configured.  If these properties are missing then it will run it's default printer configuration tool for manual intervention.
 
 = TODO =
 
 Lots and lots of testing.
-
 
 
 
