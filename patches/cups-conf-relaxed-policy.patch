@@ -1,7 +1,17 @@
 diff -ur /usr/src/packages/BUILD/cups-1.2.11/conf/cupsd.conf.in ./conf/cupsd.conf.in
---- /usr/src/packages/BUILD/cups-1.2.11/conf/cupsd.conf.in	2007-05-30 15:28:35.000000000 -0400
-+++ ./conf/cupsd.conf.in	2007-05-30 15:28:03.000000000 -0400
-@@ -47,6 +47,39 @@
+--- /usr/src/packages/BUILD/cups-1.2.11/conf/cupsd.conf.in	2007-07-30 13:56:58.000000000 -0400
++++ ./conf/cupsd.conf.in	2007-07-30 13:52:20.000000000 -0400
+@@ -25,6 +25,9 @@
+ # Default authentication type, when authentication is required...
+ DefaultAuthType Basic
+ 
++# Set the default policy to relaxed...
++DefaultPolicy relaxed
++
+ # Restrict access to the server...
+ <Location />
+   Order allow,deny
+@@ -47,6 +50,39 @@
    Allow localhost
  </Location>
  

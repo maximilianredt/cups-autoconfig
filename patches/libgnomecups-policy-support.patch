@@ -227,15 +227,3 @@ diff -ur /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-prin
  
  /* Private */
  void _gnome_cups_printer_init (void);
-diff -ur /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-request.c ./libgnomecups/gnome-cups-request.c
---- /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-request.c	2007-06-11 15:02:55.000000000 -0400
-+++ ./libgnomecups/gnome-cups-request.c	2007-06-11 15:03:17.000000000 -0400
-@@ -319,6 +319,8 @@
- 		return;
- 	}
- 
-+    cupsSetPasswordCB (cups_password_cb);
-+
- 	if (_gnome_cups_debug) {
- 		g_print ("---->>>  locking %p\n", request->connection);
- 	}
