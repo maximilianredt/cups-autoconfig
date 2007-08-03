@@ -1,6 +1,6 @@
 diff -ur /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h ./cups/ipp.h
 --- /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h	2006-08-24 11:55:42.000000000 -0400
-+++ ./cups/ipp.h	2007-07-02 13:41:59.000000000 -0400
++++ ./cups/ipp.h	2007-08-03 11:07:07.000000000 -0400
 @@ -254,7 +254,8 @@
    CUPS_GET_DEVICES,			/* Get a list of supported devices */
    CUPS_GET_PPDS,			/* Get a list of supported drivers */
@@ -13,7 +13,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/cups/ipp.h ./cups/ipp.h
  /* Old names for the operations */
 diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
 --- /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c	2007-04-23 16:36:09.000000000 -0400
-+++ ./scheduler/ipp.c	2007-07-02 14:16:47.000000000 -0400
++++ ./scheduler/ipp.c	2007-08-03 11:08:48.000000000 -0400
 @@ -197,7 +197,7 @@
  static int	validate_user(cupsd_job_t *job, cupsd_client_t *con,
  		              const char *owner, char *username,
@@ -42,7 +42,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
  	  default :
  	      cupsdAddEvent(CUPSD_EVENT_SERVER_AUDIT, NULL, NULL,
                  	    "%04X %s Operation %04X (%s) not supported",
-@@ -9162,6 +9167,90 @@
+@@ -9162,6 +9167,94 @@
                             con, owner) == HTTP_OK);
  }
  
@@ -57,6 +57,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
 +  int *perms;                  /* a temporary permissions array */
 +  int i;                       /* policy index */
 +  int j;                       /* id index */
++  char tmp_username[33];       /* temp username storage */
 +
 +  if ((user_attr = ippFindAttribute (con->request, "requesting-user-name",IPP_TAG_NAME)) == NULL)
 +  {
@@ -96,10 +97,12 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
 +  perms = malloc (sizeof (int) * id_attr->num_values);
 +  if (perms == NULL)
 +  {
++    free (results);
 +    send_ipp_status(con, IPP_INTERNAL_ERROR, NULL);
 +    return;
 +  }
 +
++  strlcpy(tmp_username, con->username, sizeof(con->username));
 +  strlcpy(con->username, user_attr->values[0].string.text, sizeof(con->username));
 +
 +  for (i = 0, p = Policies; i < NumPolicies; i++, p++)
@@ -127,6 +130,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/scheduler/ipp.c ./scheduler/ipp.c
 +  free (perms);
 +  free (results);
 +    
++  strlcpy(con->username, tmp_username, sizeof(con->username));
 +  con->request->request.op.operation_id = CUPS_IS_AUTHORIZED;
 +  con->response->request.status.status_code = IPP_OK;
 +}
