@@ -1,6 +1,6 @@
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-add/add-printer.c ./gnome-cups-add/add-printer.c
---- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-add/add-printer.c	2007-08-02 16:59:37.000000000 -0400
-+++ ./gnome-cups-add/add-printer.c	2007-08-02 16:46:38.000000000 -0400
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-add/add-printer.c	2007-08-13 16:01:30.000000000 -0400
++++ ./gnome-cups-add/add-printer.c	2007-08-13 15:57:04.000000000 -0400
 @@ -126,10 +126,26 @@
  	return glade_xml_get_widget (xml, "connection_page");
  }
@@ -102,7 +102,7 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-a
  	set_window_icon (window, "gnome-dev-printer-new");
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-cups-manager.glade ./gnome-cups-manager/gnome-cups-manager.glade
 --- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-cups-manager.glade	2005-03-04 09:36:29.000000000 -0500
-+++ ./gnome-cups-manager/gnome-cups-manager.glade	2007-08-02 12:07:32.000000000 -0400
++++ ./gnome-cups-manager/gnome-cups-manager.glade	2007-08-13 15:57:04.000000000 -0400
 @@ -18,6 +18,8 @@
    <property name="skip_pager_hint">False</property>
    <property name="type_hint">GDK_WINDOW_TYPE_HINT_NORMAL</property>
@@ -204,7 +204,7 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-m
  		      <property name="label" translatable="yes">Make _Default</property>
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-printer-list.c ./gnome-cups-manager/gnome-printer-list.c
 --- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/gnome-printer-list.c	2005-02-28 14:05:22.000000000 -0500
-+++ ./gnome-cups-manager/gnome-printer-list.c	2007-08-02 14:12:37.000000000 -0400
++++ ./gnome-cups-manager/gnome-printer-list.c	2007-08-13 16:01:17.000000000 -0400
 @@ -37,6 +37,7 @@
  #include <glib.h>
  #include <glib/gi18n.h>
@@ -277,9 +277,143 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-m
  }
  
  void
+@@ -643,6 +637,21 @@
+ 	g_list_free (selection);
+ }
+ 
++static void
++pause_async_cb (guint id, const char *path,
++                ipp_t *response, GError **error,
++                gpointer cb_data)
++{
++    GnomeCupsPrinter *printer = cb_data;
++
++    if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
++        char *msg = g_strdup_printf ("Could not pause '%s'", 
++				                     gnome_cups_printer_get_name (printer));
++		gnome_cups_error_dialog (NULL, msg, NULL);
++		g_free (msg);
++    }
++}
++
+ void
+ gnome_printer_list_selection_pause (GnomePrinterList *list)
+ {
+@@ -656,25 +665,33 @@
+ 
+ 		if (item != list->details->add_item) {
+ 			GnomeCupsPrinter *printer;
+-			GError *error = NULL;
++	        ipp_t *request;
+ 			
+ 			printer = egg_icon_list_item_get_data (item);
+-
+-			gnome_cups_printer_pause (printer, &error);
+-			if (error) {
+-				char *msg;
+-				msg = g_strdup_printf ("Could not pause '%s'", 
+-						       gnome_cups_printer_get_name (printer));
+-				gnome_cups_error_dialog (GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (list))), msg, error);
+-				g_free (msg);
+-				g_error_free (error);
+-			}
++            request = gnome_cups_request_new_for_printer (IPP_PAUSE_PRINTER, printer);
++            gnome_cups_request_execute_async (request, NULL, "/admin/",
++                                              pause_async_cb, printer, NULL);		
+ 		}
+ 	}
+ 
+ 	g_list_free (selection);
+ }
+ 
++static void
++resume_async_cb (guint id, const char *path,
++                 ipp_t *response, GError **error,
++                 gpointer cb_data)
++{
++    GnomeCupsPrinter *printer = cb_data;
++
++    if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
++        char *msg = g_strdup_printf ("Could not resume '%s'", 
++				                     gnome_cups_printer_get_name (printer));
++		gnome_cups_error_dialog (NULL, msg, NULL);
++		g_free (msg);
++    }
++}
++
+ void
+ gnome_printer_list_selection_resume (GnomePrinterList *list)
+ {
+@@ -688,19 +705,12 @@
+ 
+ 		if (item != list->details->add_item) {
+ 			GnomeCupsPrinter *printer;
+-			GError *error = NULL;
++            ipp_t *request;
+ 			
+ 			printer = egg_icon_list_item_get_data (item);
+-
+-			gnome_cups_printer_resume (printer, &error);
+-			if (error) {
+-				char *msg;
+-				msg = g_strdup_printf ("Could not resume '%s'", 
+-						       gnome_cups_printer_get_name (printer));
+-				gnome_cups_error_dialog (GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (list))), msg, error);
+-				g_free (msg);
+-				g_error_free (error);
+-			}
++            request = gnome_cups_request_new_for_printer (IPP_RESUME_PRINTER, printer);
++            gnome_cups_request_execute_async (request, NULL, "/admin/",
++                                              resume_async_cb, printer, NULL);
+ 		}
+ 	}
+ 
+@@ -759,6 +769,18 @@
+ 	g_list_free (selection);
+ }
+ 
++static void
++delete_async_cb (guint id, const char *path,
++                 ipp_t *response, GError **error,
++                 gpointer cb_data)
++{
++    if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
++        char *msg = g_strdup_printf ("Could not delete printer");
++		gnome_cups_error_dialog (NULL, msg, NULL);
++        g_free (msg);
++    }
++}
++
+ void
+ gnome_printer_list_selection_delete (GnomePrinterList *list)
+ {
+@@ -772,19 +794,12 @@
+ 
+ 		if (item != list->details->add_item) {
+ 			GnomeCupsPrinter *printer;
+-			GError *error = NULL;
++            ipp_t *request;
+ 			
+ 			printer = egg_icon_list_item_get_data (item);
+-
+-			gnome_cups_printer_delete (printer, &error);
+-			if (error) {
+-				char *msg;
+-				msg = g_strdup_printf ("Could not delete '%s'", 
+-						       gnome_cups_printer_get_name (printer));
+-				gnome_cups_error_dialog (GTK_WINDOW (gtk_widget_get_toplevel (GTK_WIDGET (list))), msg, error);
+-				g_free (msg);
+-				g_error_free (error);
+-			}
++            request = gnome_cups_request_new_for_printer (CUPS_DELETE_PRINTER, printer);
++            gnome_cups_request_execute_async (request, NULL, "/admin/",
++                                              delete_async_cb, NULL, NULL);
+ 		}
+ 	}
+ 
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/printer-properties.c ./gnome-cups-manager/printer-properties.c
---- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/printer-properties.c	2007-08-02 16:59:37.000000000 -0400
-+++ ./gnome-cups-manager/printer-properties.c	2007-08-02 14:17:59.000000000 -0400
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/printer-properties.c	2007-08-13 16:01:30.000000000 -0400
++++ ./gnome-cups-manager/printer-properties.c	2007-08-13 15:57:04.000000000 -0400
 @@ -69,22 +69,6 @@
  }
  
@@ -406,7 +540,7 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-m
  		"clicked",
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-printers.c ./gnome-cups-manager/view-printers.c
 --- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-printers.c	2004-10-01 15:10:03.000000000 -0400
-+++ ./gnome-cups-manager/view-printers.c	2007-08-02 12:07:32.000000000 -0400
++++ ./gnome-cups-manager/view-printers.c	2007-08-13 15:57:04.000000000 -0400
 @@ -133,16 +133,6 @@
  }
  
@@ -448,7 +582,7 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-m
  
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-queue.c ./gnome-cups-manager/view-queue.c
 --- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-manager/view-queue.c	2005-03-04 09:36:29.000000000 -0500
-+++ ./gnome-cups-manager/view-queue.c	2007-08-02 14:20:37.000000000 -0400
++++ ./gnome-cups-manager/view-queue.c	2007-08-13 15:57:04.000000000 -0400
 @@ -190,6 +190,21 @@
  }
  
@@ -513,8 +647,8 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/gnome-cups-m
  
 Only in .: gnome-cups-manager.spec
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.c ./libgnomecups/gnome-cups-permission.c
---- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.c	2007-08-02 16:59:37.000000000 -0400
-+++ ./libgnomecups/gnome-cups-permission.c	2007-08-02 12:07:32.000000000 -0400
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.c	2007-08-13 16:01:30.000000000 -0400
++++ ./libgnomecups/gnome-cups-permission.c	2007-08-13 15:57:04.000000000 -0400
 @@ -27,47 +27,10 @@
  #include <glib/gi18n.h>
  #include <unistd.h>
@@ -574,7 +708,7 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups
  	offset = i;
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.h ./libgnomecups/gnome-cups-permission.h
 --- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-permission.h	2004-08-18 22:45:33.000000000 -0400
-+++ ./libgnomecups/gnome-cups-permission.h	2007-08-02 12:07:32.000000000 -0400
++++ ./libgnomecups/gnome-cups-permission.h	2007-08-13 15:57:04.000000000 -0400
 @@ -7,7 +7,6 @@
  G_BEGIN_DECLS
  
@@ -583,9 +717,24 @@ diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups
  gboolean gnome_cups_spawn     (char const *app, int argc, char const **argv,
  			       gboolean force_admin, GtkWidget *toplevel);
  
+diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-ui-connection.c ./libgnomecups/gnome-cups-ui-connection.c
+--- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-ui-connection.c	2007-08-13 16:01:30.000000000 -0400
++++ ./libgnomecups/gnome-cups-ui-connection.c	2007-08-13 15:57:15.000000000 -0400
+@@ -367,10 +367,7 @@
+ 	 * adding a usb printer otherwise the printer won't be
+ 	 * detected. */
+ 	
+-	/* prefer the hal backend over the usb backend */
+-	if (!(devices = get_cups_backend_devices ("hal")))
+-		devices = get_cups_backend_devices ("usb");
+-	
++    devices = get_cups_backend_devices ("usb");
+ 	l = devices;
+ 	while (l != NULL) {
+ 		g_hash_table_insert (device_hash, ((LocalPrinter *) l->data)->uri, l->data);
 diff -ur /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-ui-init.c ./libgnomecups/gnome-cups-ui-init.c
 --- /usr/src/packages/BUILD/gnome-cups-manager-0.32cvs20060120/libgnomecups/gnome-cups-ui-init.c	2005-04-13 18:09:03.000000000 -0400
-+++ ./libgnomecups/gnome-cups-ui-init.c	2007-08-02 12:07:32.000000000 -0400
++++ ./libgnomecups/gnome-cups-ui-init.c	2007-08-13 15:57:04.000000000 -0400
 @@ -17,10 +17,7 @@
  static void
  password_activate_cb (GtkWidget *entry, gpointer user_data)
