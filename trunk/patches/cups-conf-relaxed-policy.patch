@@ -19,7 +19,7 @@ diff -ur /usr/src/packages/BUILD/cups-1.2.11/conf/cupsd.conf.in ./conf/cupsd.con
 +<Policy relaxed>
 +
 +# Let local users do reasonable things
-+<Limit Pause-Printer Resume-Printer Set-Printer-Attributes Enable-Printer Disable-Printer Deactivate-Printer Activate-Printer CUPS-Delete-Printer CUPS-Add-Printer CUPS-Set-Default>
++<Limit Pause-Printer Resume-Printer Set-Printer-Attributes Enable-Printer Disable-Printer Deactivate-Printer Activate-Printer CUPS-Delete-Printer CUPS-Add-Modify-Printer CUPS-Set-Default>
 +Require user @users @SYSTEM
 +Order deny,allow
 +Allow From localhost
