@@ -56,15 +56,6 @@ diff -ur /usr/src/packages/BUILD/libgnomecups-0.2.2/libgnomecups/gnome-cups-prin
  	};
  
  	if (printer->details->attributes_request_id > 0) {
-@@ -511,7 +522,7 @@
- 					  
- 	g_free (filename);
- 	
--	filename = g_build_filename (g_get_home_dir (), ".lpoptions", NULL);
-+	filename = g_build_filename (g_get_home_dir (), ".cups", "lpoptions", NULL);
- 	num_dests = cups_get_dests (filename, num_dests, dests);
- 	g_free (filename);
- 
 @@ -593,7 +604,7 @@
  	if (!old_default) {
  		old_default = g_strdup ("");
