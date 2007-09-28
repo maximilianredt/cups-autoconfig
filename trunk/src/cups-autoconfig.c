@@ -1418,12 +1418,10 @@ int main (int argc, char *argv[])
     } else if (migrate) {
         /* we're only doing migration */
     } else {
-        /* GOption is a piece of shit */
-        int ac = 2;
-        argv[0] = g_strdup (argv[0]);
-        argv[1] = "--help";
-        g_option_context_parse (ctx, &ac, &argv, NULL);
-        g_free (argv[0]);
+        /* just show the help */
+        gchar *help_txt = g_option_context_get_help (ctx, FALSE, NULL);
+        g_printerr ("%s\n", help_txt);
+        g_free (help_txt);
     }
 
 done:
@@ -1434,7 +1432,9 @@ done:
     
     g_free (debug);
     cups_disconnect ();
-    g_option_context_free (ctx);
+
+    if (ctx)
+        g_option_context_free (ctx);
 
     if (config)
         free_config ();
