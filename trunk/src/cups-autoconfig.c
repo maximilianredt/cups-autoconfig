@@ -907,8 +907,10 @@ static gboolean add_print_queue (const gchar *uri, const gchar *ppd_file, const 
 	ippAddBoolean (request, IPP_TAG_PRINTER, "printer-is-accepting-jobs", 1);
 	ippAddInteger(request, IPP_TAG_PRINTER, IPP_TAG_ENUM, "printer-state",
                   IPP_PRINTER_IDLE);
-    ippAddString (request, IPP_TAG_PRINTER, IPP_TAG_NAME,
-                  "printer-op-policy", NULL, g_strdup (config->default_policy));
+
+    if (config->default_policy)
+        ippAddString (request, IPP_TAG_PRINTER, IPP_TAG_NAME,
+                      "printer-op-policy", NULL, g_strdup (config->default_policy));
 
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {

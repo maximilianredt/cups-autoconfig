@@ -2,6 +2,12 @@
 
 	* src/cups-autoconfig.c:
 
+	Default to not setting the CUPS policy for new printers.
+
+2007-09-28  Chris Rivera  <crivera@novell.com>
+
+	* src/cups-autoconfig.c:
+
 	Use g_option_context_get_help() if no flags
 	are provided.
 
