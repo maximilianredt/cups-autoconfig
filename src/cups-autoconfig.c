@@ -44,9 +44,7 @@
 #define CUPS_BACKEND_DIR LIBDIR "/cups/backend"
 #define LOGFILE LOCALSTATEDIR "/log/cups-autoconfig.log"
 #define CONFIGFILE SYSCONFDIR "/cups-autoconfig.conf"
-
-#define dbg(fmt,arg...) log_it(TRUE, fmt, ##arg)
-#define err(fmt,arg...) log_it(FALSE, fmt, ##arg)
+#define MAX_LOG_SIZE 20971520
 
 typedef enum {
     PPD_NO_MATCH,
@@ -69,28 +67,22 @@ typedef struct _ConfigInfo {
     gchar *default_policy;
     gboolean add;
     gboolean remove;
-    gboolean debug;
 } ConfigInfo;
 
-FILE *log_file;
-ConfigInfo *config;
-GHashTable *alias_map;
-GHashTable *vendor_map;
-http_t *global_cups_connection;
-gboolean enable_debug = FALSE;
-LibHalContext *hal_ctx;
+static FILE *log_file;
+static ConfigInfo *config;
+static GHashTable *alias_map;
+static GHashTable *vendor_map;
+static http_t *global_cups_connection;
+static LibHalContext *hal_ctx;
 
-static void log_it (gboolean debug, const char *fmt, ...)
+static void log_it (const char *fmt, ...)
 {
     va_list args;
 
     va_start (args, fmt);
-    
     g_vfprintf (stderr, fmt, args);
     g_vfprintf (log_file, fmt, args);
-    if (enable_debug && debug)
-        g_vfprintf (log_file, fmt, args);
-    
     va_end (args);
 }
 
@@ -104,7 +96,7 @@ static gboolean load_config (void)
     config = g_malloc (sizeof (ConfigInfo));
 
     if (!g_key_file_load_from_file (kf, CONFIGFILE, G_KEY_FILE_NONE, &error)) {
-        err ("Error loading config file: %s\n", error->message);
+        log_it ("Error loading config file: %s\n", error->message);
         g_error_free (error);
         return FALSE;
     }
@@ -117,10 +109,6 @@ static gboolean load_config (void)
     config->remove = value && (!strcmp (value, "yes") || !strcmp (value, "y")) ? TRUE : FALSE; 
     g_free (value);
     
-    value = g_key_file_get_value (kf, "CUPS", "Debug", NULL);
-    config->debug = value && (!strcmp (value, "yes") || !strcmp (value, "y")) ? TRUE : FALSE; 
-    g_free (value);
-   
     value = g_key_file_get_value (kf, "CUPS", "DefaultCUPSPolicy", NULL);
     if (!strcmp ("", value)) {
         g_free (value);
@@ -154,7 +142,13 @@ static void free_printer_info (gpointer data, gpointer user_data)
 
 static gboolean open_log (void)
 {
-    log_file = fopen (LOGFILE, "w");
+    struct stat info;
+    gboolean append = TRUE;
+
+    if (!stat (LOGFILE, &info) && info.st_size > MAX_LOG_SIZE)
+        append = FALSE;
+
+    log_file = fopen (LOGFILE, append ? "a" : "w");
     if (!log_file) {
         g_printerr ("Failed to open log file: %s\n", strerror (errno));
         return FALSE;
@@ -225,7 +219,7 @@ static gboolean cups_connect (void)
 {
     global_cups_connection = httpConnectEncrypt (cupsServer (), ippPort (), cupsEncryption ());
     if (!global_cups_connection) {
-        err ("Failed to connect to cupsd\n");
+        log_it ("Failed to connect to cupsd\n");
         return FALSE;
     }
 
@@ -245,15 +239,26 @@ static void cups_disconnect (void)
  * Set the printer.configured property on new printers for policy
  * applications like gvm.
  */
+static void set_printer_configured_existing_property (const gchar *udi, const gchar *name)
+{
+    if (!libhal_device_set_property_bool (hal_ctx, udi,
+                                          "printer.configured_existing", TRUE, NULL))
+        log_it ("Failed to set printer.configured_existing property for '%s'\n", udi);
+}
+
+/*
+ * Set the printer.configured property on new printers for policy
+ * applications like gvm.
+ */
 static void set_printer_configured_property (const gchar *udi, const gchar *name)
 {
     if (!libhal_device_set_property_bool (hal_ctx, udi,
                                           "printer.configured", TRUE, NULL))
-        err ("Failed to set printer.configured property for '%s'\n", udi);
+        log_it ("Failed to set printer.configured property for '%s'\n", udi);
 
     if (!libhal_device_set_property_string (hal_ctx, udi,
                                             "printer.display_name", name, NULL))
-        err ("Failed to set printer.display_name\n");
+        log_it ("Failed to set printer.display_name\n");
 }
 
 /* 
@@ -465,9 +470,9 @@ static gboolean printer_matches_hal_properties (PrinterInfo *pi, gchar *hal_udi)
     model = libhal_device_get_property_string (hal_ctx, hal_udi, "printer.product", NULL);
     serial = libhal_device_get_property_string (hal_ctx, hal_udi, "printer.serial", NULL);
 
-    dbg ("HAL Printer properties make='%s' model='%s' serial='%s'\n"
-         "Printer properties uri='%s' m_and_m='%s'\n", 
-         make, model, serial, pi->uri, pi->make_and_model);
+    log_it ("HAL Printer properties make='%s' model='%s' serial='%s'\n"
+            "Printer properties uri='%s' m_and_m='%s'\n", 
+            make, model, serial, pi->uri, pi->make_and_model);
 
     if (!model || !make)
         goto done;
@@ -485,7 +490,7 @@ static gboolean printer_matches_hal_properties (PrinterInfo *pi, gchar *hal_udi)
                 goto matched;
             }
         } else
-            dbg ("couldn't find a serial number in the backend uri\n");
+            log_it ("couldn't find a serial number in the backend uri\n");
     }
 
     /* strip spaces */
@@ -501,7 +506,7 @@ static gboolean printer_matches_hal_properties (PrinterInfo *pi, gchar *hal_udi)
     /* check the model */
     mdl = model_from_string (make, pi->make_and_model);
     if (g_ascii_strcasecmp (mdl, model)) {
-        dbg ("models '%s' and '%s' didn't match with make '%s'\n",
+        log_it ("models '%s' and '%s' didn't match with make '%s'\n",
              mdl, model, make);
         goto done;
     }
@@ -535,7 +540,7 @@ static gchar *get_best_ppd (PrinterInfo *pi)
     request = ippNewRequest (CUPS_GET_PPDS);
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to get ppds for '%s'\n", pi->make);
+        log_it ("Failed to get ppds for '%s'\n", pi->make);
         goto done;
     } 
 
@@ -568,25 +573,25 @@ static gchar *get_best_ppd (PrinterInfo *pi)
             gchar *pm;
 
             /* match with ieee 1284 ids */
-            dbg ("Matching with 1284 ids '%s' and '%s'\n", pi->device_id, id);
+            log_it ("Matching with 1284 ids '%s' and '%s'\n", pi->device_id, id);
             get_1284_fields (pi->device_id, NULL, &pm, NULL);
             get_1284_fields (id, NULL, &ppd_model, NULL);
-            dbg ("Extracted models are '%s' and '%s'\n", pm, ppd_model);
+            log_it ("Extracted models are '%s' and '%s'\n", pm, ppd_model);
             if (!ppd_model || !pm)
                 continue;
 
             match = !g_ascii_strcasecmp (ppd_model, pm) ? TRUE : FALSE;
-            dbg ("Result for matching '%s' and '%s' was %d\n\n", ppd_model, pm, match);
+            log_it ("Result for matching '%s' and '%s' was %d\n\n", ppd_model, pm, match);
         } else {
             /* match with model strings */
-            dbg ("Matching with model strings '%s' and '%s'\n", pi->model, make_and_model);
+            log_it ("Matching with model strings '%s' and '%s'\n", pi->model, make_and_model);
             ppd_model = model_from_string (pi->make, make_and_model);
-            dbg ("Extracted model string from ppd was '%s'\n", ppd_model);
+            log_it ("Extracted model string from ppd was '%s'\n", ppd_model);
             if (!ppd_model)
                 continue;
 
             match = !g_ascii_strcasecmp (ppd_model, pi->model) ? TRUE : FALSE;
-            dbg ("Result for matching '%s' and '%s' was %d\n\n", ppd_model, pi->model, match);
+            log_it ("Result for matching '%s' and '%s' was %d\n\n", ppd_model, pi->model, match);
         }
 
         if (match) {
@@ -639,7 +644,7 @@ static gboolean get_local_printers (GSList **list, const gchar *backend)
                                     G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_STDERR_TO_DEV_NULL,
                                     NULL, NULL, &child, NULL, &std_out, NULL, &err);
     if (!ret) {
-        err ("%s\n", err->message);
+        log_it ("%s\n", err->message);
         g_error_free (err);
         g_free (path);
         return FALSE;
@@ -648,7 +653,7 @@ static gboolean get_local_printers (GSList **list, const gchar *backend)
     g_free (path);
     fp = fdopen (std_out, "r");
     if (!fp) {
-        err ("%s\n", strerror (errno));
+        log_it ("%s\n", strerror (errno));
         return FALSE;
     }
     
@@ -716,7 +721,7 @@ static gboolean get_local_printers (GSList **list, const gchar *backend)
         }
 
         *list = g_slist_append (*list, pi);
-        dbg ("local printer '%s' - '%s'\n", pi->uri, pi->make_and_model);
+        log_it ("local printer '%s' - '%s'\n", pi->uri, pi->make_and_model);
     }
 
     fclose (fp);
@@ -738,7 +743,7 @@ static gboolean has_preferred_backend_match (PrinterInfo *usbp, PrinterInfo **ma
     GSList *detected = NULL, *p;
 
     if (!get_local_printers (&detected, backend)) {
-        dbg ("Failed to list printers from '%s' backend\n", backend);
+        log_it ("Failed to list printers from '%s' backend\n", backend);
         return FALSE;
     }
 
@@ -805,7 +810,7 @@ static gboolean get_detected_printers (GSList **list)
     int i;
 
     if (!get_local_printers (&ret, "usb")) {
-        err ("Failed to get printers from usb backend\n");
+        log_it ("Failed to get printers from usb backend\n");
         return FALSE;
     }
 
@@ -818,7 +823,7 @@ static gboolean get_detected_printers (GSList **list)
 
         for (i = 0; i < sizeof(pref_list) / sizeof(pref_list[0]); i++) {
             if (has_preferred_backend_match (pi, &match, pref_list[i])) {
-                dbg ("preferring '%s' over '%s'\n", match->uri, pi->uri);
+                log_it ("preferring '%s' over '%s'\n", match->uri, pi->uri);
                 free_printer_info (pi, NULL);
                 p->data = match;
                 break;
@@ -841,7 +846,7 @@ static gboolean get_cups_printers (GSList **list)
     request = ippNewRequest (CUPS_GET_PRINTERS);
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to get the list of printers from cupsd\n");
+        log_it ("Failed to get the list of printers from cupsd\n");
         return FALSE;
     }
 
@@ -870,7 +875,7 @@ static gboolean get_cups_printers (GSList **list)
             free_printer_info (pi, NULL);
         } else {
             *list = g_slist_append (*list, pi);
-            dbg ("CUPS printer '%s' - '%s'\n", pi->uri, pi->name);
+            log_it ("CUPS printer '%s' - '%s'\n", pi->uri, pi->name);
         }
         
         if (!attr)
@@ -890,7 +895,7 @@ static gboolean add_print_queue (const gchar *uri, const gchar *ppd_file, const 
     gboolean ret = FALSE;
 	gchar local_uri [HTTP_MAX_URI + 1];
   
-    dbg ("adding queue with uri='%s' ppd='%s' name='%s'\n",
+    log_it ("adding queue with uri='%s' ppd='%s' name='%s'\n",
          uri, ppd_file, printer_name);
     g_snprintf (local_uri, sizeof local_uri - 1,
 		        "ipp://localhost/printers/%s", printer_name);
@@ -914,7 +919,7 @@ static gboolean add_print_queue (const gchar *uri, const gchar *ppd_file, const 
 
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to add new printer queue\n");
+        log_it ("Failed to add new printer queue\n");
         goto done;
     }
     
@@ -941,10 +946,10 @@ static gboolean remove_print_queue (const char *printer_name)
 	ippAddString (request, IPP_TAG_OPERATION, IPP_TAG_URI,
 		          "printer-uri", NULL, local_uri);
 
-    dbg ("attempting to remove '%s'\n", local_uri);
+    log_it ("attempting to remove '%s'\n", local_uri);
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to remove printer\n");
+        log_it ("Failed to remove printer\n");
         goto done;
     }
 
@@ -974,7 +979,7 @@ static gboolean set_printer_status (const gchar *printer_name, gboolean enable)
 
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to change printer state\n");
+        log_it ("Failed to change printer state\n");
         goto done;
     }
 
@@ -998,12 +1003,12 @@ static gchar *get_1284_id_from_device (const char *device)
 
     fd = open (device, O_RDWR);
     if (fd == -1) {
-        err ("open failed: %s\n", strerror (errno));
+        log_it ("open failed: %s\n", strerror (errno));
         return NULL;
     }
 
     if (ioctl (fd, LPIOC_GET_DEVICE_ID(1024), buff)) {
-        err ("ioctl failed: %s\n", strerror (errno));
+        log_it ("ioctl failed: %s\n", strerror (errno));
         close (fd);
         return NULL;
     }
@@ -1025,7 +1030,7 @@ static gchar *hal_to_usb_uri (PrinterInfo *hp)
 
     get_detected_printers (&detected);
     if (!detected) {
-        err ("There are no local printers detected\n");
+        log_it ("There are no local printers detected\n");
         return NULL;
     }
 
@@ -1043,15 +1048,15 @@ static gchar *hal_to_usb_uri (PrinterInfo *hp)
                 if (ieee_id) {
                     gboolean match = match_by_1284 (pi->device_id, ieee_id);
                     
-                    dbg ("Trying to match 1284 ids '%s' and '%s'\n", pi->device_id, ieee_id);
+                    log_it ("Trying to match 1284 ids '%s' and '%s'\n", pi->device_id, ieee_id);
                     g_free (ieee_id);
                     
                     if (match) {
-                        dbg ("1284 ids matched for '%s' and '%s'\n", pi->uri, hp->uri);
+                        log_it ("1284 ids matched for '%s' and '%s'\n", pi->uri, hp->uri);
                         ret = g_strdup (pi->uri);
                         goto done;
                     } else {
-                        dbg ("1284 ids didn't match\n");
+                        log_it ("1284 ids didn't match\n");
                         continue;
                     }
                 }
@@ -1059,9 +1064,9 @@ static gchar *hal_to_usb_uri (PrinterInfo *hp)
         }
 
         /* no 1284 id so we have to use string matching */
-        dbg ("no 1284 ids, using string matching\n");
+        log_it ("no 1284 ids, using string matching\n");
         if (printer_matches_hal_properties (pi, hp->uri + 6)) {
-            dbg ("strings matched hal uri '%s'\n", hp->uri);
+            log_it ("strings matched hal uri '%s'\n", hp->uri);
             ret = g_strdup (pi->uri);
             break;
         } 
@@ -1093,7 +1098,7 @@ static gchar *find_matching_ppd (const gchar *ppd_make_and_model)
     request = ippNewRequest (CUPS_GET_PPDS);
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
-        err ("Failed to get ppds\n");
+        log_it ("Failed to get ppds\n");
         goto done;
     }
  
@@ -1117,7 +1122,7 @@ static gchar *find_matching_ppd (const gchar *ppd_make_and_model)
             } 
         }
 
-        dbg ("find_matching_ppd: comparing '%s' and '%s'\n", mm, make_and_model);
+        log_it ("find_matching_ppd: comparing '%s' and '%s'\n", mm, make_and_model);
         if (!g_ascii_strcasecmp (mm, make_and_model)) {
             ppd = g_strdup (name);
             break;
@@ -1153,19 +1158,19 @@ static gboolean migrate_hal_printers (void)
         if (!usb_uri)
             continue;
 
-        dbg ("hal uri '%s' matched uri '%s'\n", tmp->uri, usb_uri);
+        log_it ("hal uri '%s' matched uri '%s'\n", tmp->uri, usb_uri);
         ppd_file = find_matching_ppd (tmp->make_and_model);
         if (!ppd_file) {
-            err ("Failed to find matching ppd for '%s' '%s'\n", tmp->uri, tmp->make_and_model);
+            log_it ("Failed to find matching ppd for '%s' '%s'\n", tmp->uri, tmp->make_and_model);
             goto done;
         }
             
-        dbg ("Found matching ppd '%s'\n", ppd_file);
+        log_it ("Found matching ppd '%s'\n", ppd_file);
         if (!remove_print_queue (tmp->name)) {
-            err ("Failed to remove hal print queue\n");
+            log_it ("Failed to remove hal print queue\n");
         } else {
             if (!add_print_queue (usb_uri, ppd_file, tmp->name)) {
-                err ("Failed to add usb print queue\n");
+                log_it ("Failed to add usb print queue\n");
             }
         }
 
@@ -1201,7 +1206,7 @@ static gboolean add_printers (void)
     get_cups_printers (&configured);
     get_detected_printers (&detected);
     if (!detected) {
-        err ("Failed to detect backend printers\n");
+        log_it ("Failed to detect backend printers\n");
         goto done;
     }
 
@@ -1226,7 +1231,7 @@ static gboolean add_printers (void)
         }
        
         if (!new_printer) {
-            err ("Failed to find a printer that matches HAL properties\n");
+            log_it ("Failed to find a printer that matches HAL properties\n");
             continue;
         }
 
@@ -1241,24 +1246,25 @@ static gboolean add_printers (void)
 
         /* make sure this printer is enabled */
         if (old_printer) {
-            dbg ("Enabling old printer '%s'\n", old_printer->name);
+            log_it ("Enabling old printer '%s'\n", old_printer->name);
             set_printer_status (old_printer->name, TRUE);
+            set_printer_configured_existing_property (printers[i], name);
             continue;
         }
        
         /* try and find a ppd for the new printer */
         ppd = get_best_ppd (new_printer);
         if (!ppd) {
-            err ("Failed to find PPD file for printer\n");
+            log_it ("Failed to find PPD file for printer\n");
             continue;
         }
 
-        dbg ("selected ppd file is '%s'\n", ppd);
+        log_it ("selected ppd file is '%s'\n", ppd);
         name = generate_printer_name (new_printer, configured);
         if (add_print_queue (new_printer->uri, ppd, name)) {
             set_printer_configured_property (printers[i], name);
         } else {
-            err ("Failed to add print queue\n");
+            log_it ("Failed to add print queue\n");
         }
 
         g_free (ppd);
@@ -1342,7 +1348,6 @@ int main (int argc, char *argv[])
 {
     GOptionContext *ctx = NULL;
     GError *err = NULL;
-    gchar *debug = NULL;
     DBusError error;
     gboolean add_cmd = FALSE, disable_cmd = FALSE;
     gboolean ret = FALSE, is_add_enabled = FALSE, migrate = FALSE;
@@ -1351,7 +1356,6 @@ int main (int argc, char *argv[])
         { "add", 0, 0, G_OPTION_ARG_NONE, &add_cmd, "Add new printers", NULL },
         { "disable", 0, 0, G_OPTION_ARG_NONE, &disable_cmd, 
           "Disable printers that aren't connected", NULL },
-        { "debug", 0, 0, G_OPTION_ARG_NONE, &enable_debug, "Enable debugging output", NULL },
         { "migrate-hal-printers", 0, 0, G_OPTION_ARG_NONE, &migrate, "Migrate HAL backend printers", NULL },
         { "is-add-enabled", 0, 0, G_OPTION_ARG_NONE, &is_add_enabled,
           "Check if the ConfigureNewPrinters option is set", NULL },
@@ -1368,33 +1372,30 @@ int main (int argc, char *argv[])
     ctx = g_option_context_new ("");
     g_option_context_add_main_entries (ctx, entries, NULL);
     if (!g_option_context_parse (ctx, &argc, &argv, &err)) {
-        err ("parsing failed: %s\n", err->message);
+        log_it ("parsing failed: %s\n", err->message);
         g_error_free (err);
         goto done;
     }
 
     if (geteuid () != 0) {
-        err ("You must be root to run %s\n", argv[0]);
+        log_it ("You must be root to run %s\n", argv[0]);
         goto done;
     }
 
     if (!load_config ()) {
-        err ("Failed to load config file\n");
+        log_it ("Failed to load config file\n");
         goto done;
     }
     
     load_vendor_mappings ();
     
-    if (config->debug)
-        enable_debug = TRUE;
-    
     if (!cups_connect ()) {
-        err ("Failed to connect to CUPS\n");
+        log_it ("Failed to connect to CUPS\n");
         goto done;
     }
 
     if (!(hal_ctx = libhal_ctx_new ())) {
-        err ("Unable to create HAL context\n");
+        log_it ("Unable to create HAL context\n");
         goto done;
     }
 	
@@ -1402,13 +1403,13 @@ int main (int argc, char *argv[])
     libhal_ctx_set_dbus_connection (hal_ctx, dbus_bus_get (DBUS_BUS_SYSTEM, &error));
 	
     if (!libhal_ctx_init (hal_ctx, &error)) {
-        err ("Unable to init HAL context: %s\n", error.message);
+        log_it ("Unable to init HAL context: %s\n", error.message);
         dbus_error_free (&error);
         goto done;
     }
 
     if (migrate && !migrate_hal_printers ())
-        err ("Failed to migrate hal printers\n");
+        log_it ("Failed to migrate hal printers\n");
 
     if (add_cmd) {
         if (add_printers ())
@@ -1432,7 +1433,6 @@ done:
         libhal_ctx_free (hal_ctx);
     }
     
-    g_free (debug);
     cups_disconnect ();
 
     if (ctx)

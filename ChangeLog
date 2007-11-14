@@ -1,3 +1,15 @@
+2007-11-14  Chris Rivera  <crivera@novell.com>
+
+	* src/cups-autoconfig.c:
+
+	Remove the debug option in favor of always logging
+	good debugging information.
+
+	Set the printer.configured_existing property on old
+	printers that have been plugged back in.  This lets
+	gvm know that it doesn't need to do anything.  This
+	should fix 304933.
+
 2007-09-28  Chris Rivera  <crivera@novell.com>
 
 	* src/cups-autoconfig.c:
