@@ -1,6 +1,6 @@
 SUBDIRS = src po 
 
-fdidir=$(datadir)/hal/fdi/policy/10osvendor
+fdidir=$(datadir)/hal/fdi/policy/20thirdparty
 fdi_DATA=10-cups-autoconfig.fdi
 
 sysconfigdir = $(sysconfdir)
