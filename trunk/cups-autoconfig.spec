@@ -46,7 +46,7 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/cups-autoconfig/cups-autoconfig
 %{_libdir}/hal/hal-cups-autoconfig
 %config %{_sysconfdir}/cups-autoconfig.conf
-%{_datadir}/hal/fdi/policy/10osvendor/10-cups-autoconfig.fdi
+%{_datadir}/hal/fdi/policy/20thirdparty/10-cups-autoconfig.fdi
 %{_datadir}/locale/en_US/LC_MESSAGES/cups-autoconfig.mo
 
 %changelog -n cups-autoconfig 

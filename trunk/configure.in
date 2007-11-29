@@ -75,7 +75,6 @@ AC_OUTPUT([
 Makefile
 po/Makefile.in
 src/Makefile
-10-cups-autoconfig.fdi
 ])
 
 echo
