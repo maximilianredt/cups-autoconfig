@@ -105,9 +105,11 @@ static gboolean load_config (void)
     config->add = value && (!strcmp (value, "yes") || !strcmp (value, "y")) ? TRUE : FALSE; 
     g_free (value);
 
-    value = g_key_file_get_value (kf, "CUPS", "DisablePrintersOnRemoval", NULL);
+    /*value = g_key_file_get_value (kf, "CUPS", "DisablePrintersOnRemoval", NULL);
     config->remove = value && (!strcmp (value, "yes") || !strcmp (value, "y")) ? TRUE : FALSE; 
-    g_free (value);
+    g_free (value);*/
+
+    config->remove = FALSE;
     
     value = g_key_file_get_value (kf, "CUPS", "DefaultCUPSPolicy", NULL);
     if (!strcmp ("", value)) {
