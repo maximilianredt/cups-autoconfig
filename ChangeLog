@@ -1,3 +1,10 @@
+2007-11-30  Chris Rivera  <crivera@novell.com>
+
+	* src/cups-autoconfig.c:
+
+	Disable the ability to pause printers on 
+	removal.  This is causing problems.
+
 2007-11-29  Chris Rivera  <crivera@novell.com>
 
 	* src/cups-autoconfig.c:
