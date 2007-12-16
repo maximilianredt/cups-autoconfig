@@ -79,10 +79,13 @@ static LibHalContext *hal_ctx;
 static void log_it (const char *fmt, ...)
 {
     va_list args;
+    
+    va_start (args, fmt);
+    g_vfprintf (log_file, fmt, args);
+    va_end (args);
 
     va_start (args, fmt);
     g_vfprintf (stderr, fmt, args);
-    g_vfprintf (log_file, fmt, args);
     va_end (args);
 }
 
