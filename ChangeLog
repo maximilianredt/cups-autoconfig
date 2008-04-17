@@ -1,3 +1,16 @@
+2008-04-17  Chris Rivera  <crivera@novell.com>
+
+	* src/cups-autoconfig.c:
+
+	Check the IEEE 1284 description fields for more
+	model information.  This helps match ppds and printers
+	that report general models instead of the exact
+	model.  For example, the usb backend description for
+	my printer is '3550' while the hp backend description
+	is 'deskjet 3500'.  The actual model is 'deskjet 3550'.
+	This change helps us find this and setup the printer
+	correctly.
+
 2007-12-30  Chris Rivera  <crivera@novell.com>
 
 	* src/cups-autoconfig.c:
