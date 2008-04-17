@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <ctype.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -61,6 +62,8 @@ typedef struct _PrinterInfo {
     gchar *make_and_model;
     gchar *device_id;
     gchar *serial;
+    gchar *description;
+    gchar *alt_description;
 } PrinterInfo;
 
 typedef struct _ConfigInfo {
@@ -143,6 +146,8 @@ static void free_printer_info (gpointer data, gpointer user_data)
     g_free (pi->make_and_model);
     g_free (pi->device_id);
     g_free (pi->serial);
+    g_free (pi->description);
+    g_free (pi->alt_description);
 }
 
 static gboolean open_log (void)
@@ -375,16 +380,14 @@ done:
 }
 
 /*
- * Extract the vendor, model, and serial number from an ieee 1284 id.
+ * Extract the vendor, model, serial number, and description from an ieee 1284 id.
  * The returned strings need to be free by the caller.
  */
-static void get_1284_fields (const gchar *id, gchar **vendor, gchar **model, gchar **serial)
+static void get_1284_fields (const gchar *id, gchar **vendor, gchar **model, gchar **serial, gchar **desc)
 {
-    gchar *uid = g_ascii_strup (id, -1);
+    gchar *s, *e, *uid = g_ascii_strup (id, -1);
 
     if (vendor) {
-        gchar *s, *e;
-
         if ((s = strstr (uid, "MFG:")))
             s += 4;
         else if ((s = strstr (uid, "MANUFACTURER:")))
@@ -397,8 +400,6 @@ static void get_1284_fields (const gchar *id, gchar **vendor, gchar **model, gch
     }
 
     if (model) {
-        gchar *s, *e;
-        
         if ((s = strstr (uid, "MDL:")))
             s += 4;
         else if ((s = strstr (uid, "MODEL:")))
@@ -411,8 +412,6 @@ static void get_1284_fields (const gchar *id, gchar **vendor, gchar **model, gch
     }
 
     if (serial) {
-        gchar *s, *e;
-        
         if ((s = strstr (uid, "SERN:")))
             s += 5;
         else if ((s = strstr (uid, "SERIALNUMBER:")))
@@ -423,6 +422,18 @@ static void get_1284_fields (const gchar *id, gchar **vendor, gchar **model, gch
         if (s && (e = strchr (s, ';'))) {
             *e = '\0';
             *serial = g_strstrip (g_strdup (s));
+        }
+    }
+    
+    if (desc) {
+        if ((s = strstr (uid, "DES:")))
+            s += 4;
+        else if ((s = strstr (uid, "DESCRIPTION:")))
+            s += 12;
+        
+        if (s && (e = strchr (s, ';'))) {
+            *e = '\0';
+            *desc = g_strstrip (g_strdup (s));
         }
     }
 }
@@ -436,8 +447,8 @@ static gboolean match_by_1284 (const char *id1, const char *id2)
     gchar *man1 = NULL, *man2 = NULL, *mod1 = NULL;
     gchar *mod2 = NULL, *ser1 = NULL, *ser2 = NULL; 
 
-    get_1284_fields (id1, &man1, &mod1, &ser1);
-    get_1284_fields (id2, &man2, &mod2, &ser2);
+    get_1284_fields (id1, &man1, &mod1, &ser1, NULL);
+    get_1284_fields (id2, &man2, &mod2, &ser2, NULL);
 
     if (man1 && man2 && g_ascii_strcasecmp (man1, man2))
         goto done;
@@ -531,6 +542,77 @@ done:
 }
 
 /*
+ * The description field is a string that should be presented to users to represent
+ * the printer.  Sometimes it's just the model.
+ */
+static gboolean match_from_descriptions (PrinterInfo *pi, gchar *ppd_model, gchar *printer_model)
+{
+    gboolean ret = FALSE;
+    gchar *d1 = NULL, *d2 = NULL, *m, *result, *pm = g_strdup (printer_model);
+    
+    if (pi->description)
+        d1 = g_ascii_strup (pi->description, -1);
+    
+    if (pi->alt_description)
+        d2 = g_ascii_strup (pi->alt_description, -1);
+
+    log_it ("Checking descriptions '%s' and '%s' against '%s'\n",
+            d1, d2, ppd_model);
+
+    /* see if the ppd model matches the descriptions */
+    if (d1 && !g_ascii_strcasecmp (d1, ppd_model)) {
+        ret = TRUE;
+        goto done;
+    }
+    
+    if (d2 && !g_ascii_strcasecmp (d2, ppd_model)) {
+        ret = TRUE;
+        goto done;
+    }
+
+    /*
+     * Some printers report different descriptions depending on the backend,
+     * i.e 'deskjet 3500' via hp and '3550' via usb.  In this case the
+     * actual printer model is deskjet 3550.  Check for this case.
+     * Also, I hate printing.
+     */
+    for (m = pm; m != '\0' && isalpha (*m); m++);
+    *m = '\0';
+    
+    if (d1 && !isalpha (d1[0])) {
+        result = g_strconcat (pm, " ", d1, NULL);
+        log_it ("Combined alt description is '%s'\n", result);
+        if (!g_ascii_strcasecmp (result, ppd_model)) {
+            log_it ("Combined alt description '%s' matched '%s'\n", result, ppd_model);
+            g_free (result);
+            ret = TRUE;
+            goto done;
+        }
+        
+        g_free (result);
+    }
+    
+    if (d2 && !isalpha (d2[0])) {
+        result = g_strconcat (pm, " ", d2, NULL);
+        log_it ("Combined alt description is '%s'\n", result);
+        if (!g_ascii_strcasecmp (result, ppd_model)) {
+            log_it ("Combined alt description '%s' matched '%s'\n", result, ppd_model);
+            g_free (result);
+            ret = TRUE;
+            goto done;
+        }
+        
+        g_free (result);
+    }
+
+done:
+    g_free (d1);
+    g_free (d2);
+    g_free (pm);
+    return ret;
+}
+
+/*
  * Return the best PPD file to use for a given printer.  The
  * returned string must be freed by the caller.
  */
@@ -541,7 +623,7 @@ static gchar *get_best_ppd (PrinterInfo *pi)
     ipp_attribute_t *attr;
     PPDScore ppd_score = PPD_NO_MATCH;
 
-    /* get the list of ppds for pi's vendor */
+    /* get the list of ppds */
     request = ippNewRequest (CUPS_GET_PPDS);
     response = cupsDoRequest (global_cups_connection, request, "/");
     if (!response || response->request.status.status_code > IPP_OK_CONFLICT) {
@@ -578,14 +660,17 @@ static gchar *get_best_ppd (PrinterInfo *pi)
             gchar *pm;
 
             /* match with ieee 1284 ids */
-            log_it ("Matching with 1284 ids '%s' and '%s'\n", pi->device_id, id);
-            get_1284_fields (pi->device_id, NULL, &pm, NULL);
-            get_1284_fields (id, NULL, &ppd_model, NULL);
-            log_it ("Extracted models are '%s' and '%s'\n", pm, ppd_model);
+            log_it ("Matching with 1284 ids:\n\t'%s'\n\t'%s'\n", pi->device_id, id);
+            get_1284_fields (pi->device_id, NULL, &pm, NULL, NULL);
+            get_1284_fields (id, NULL, &ppd_model, NULL, NULL);
+            log_it ("Extracted models are '%s' (printer) and '%s' (ppd)\n", pm, ppd_model);
             if (!ppd_model || !pm)
                 continue;
 
             match = !g_ascii_strcasecmp (ppd_model, pm) ? TRUE : FALSE;
+            if (!match)
+                match = match_from_descriptions (pi, ppd_model, pm);
+
             log_it ("Result for matching '%s' and '%s' was %d\n\n", ppd_model, pm, match);
         } else {
             /* match with model strings */
@@ -768,7 +853,10 @@ static gboolean has_preferred_backend_match (PrinterInfo *usbp, PrinterInfo **ma
         if (usbp->device_id && sp->device_id) {
             /* match by ieee1284 ids */
             if (match_by_1284 (sp->device_id, usbp->device_id)) {
+                
                 *match = sp;
+                get_1284_fields (sp->device_id, NULL, NULL, NULL, &sp->description);
+                get_1284_fields (usbp->device_id, NULL, NULL, NULL, &sp->alt_description);
                 continue;
             }
         } else {
@@ -781,13 +869,11 @@ static gboolean has_preferred_backend_match (PrinterInfo *usbp, PrinterInfo **ma
             s1 = strstr (usbp->uri, "?serial=");
             s2 = strstr (sp->uri, "?serial=");
 
-            if (s1)
-                s1 += 8;
-            if (s2)
-                s2 += 8;
-           
             /* check the serial numbers if both printers have them */
             if (s1 && s2) {
+                s1 += 8;
+                s2 += 8;
+                
                 if (!g_ascii_strcasecmp (s1, s2)) {
                     *match = sp;
                     continue;
